@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 移动端视口：禁止用户缩放，使聊天界面更像原生 App -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f7f7" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="健康助手" />
+
+  <title>健康助手</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+
+  <!-- 样式 -->
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Markdown 渲染：marked + 代码高亮 highlight.js（可选） -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js" defer></script>
+</head>
+<body>
+  <!-- 顶部导航栏（类似 iOS 导航栏） -->
+  <header class="app-header">
+    <div class="app-header__inner">
+      <h1 class="app-header__title">健康助手</h1>
+      <button id="clearBtn" class="app-header__action" type="button" title="清空消息">清空</button>
+    </div>
+  </header>
+
+  <!-- 消息列表区域 -->
+  <main id="chat" class="chat-list" aria-live="polite">
+    <!-- 消息由 JS 动态注入 -->
+  </main>
+
+  <!-- 底部输入区域 -->
+  <footer class="chat-input-bar">
+    <!-- 隐藏的文件输入：支持拍照与相册 -->
+    <input
+      id="imageInput"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      class="chat-input-bar__file"
+    />
+
+    <button
+      id="imageBtn"
+      type="button"
+      class="chat-input-bar__icon"
+      aria-label="上传图片或拍照"
+      title="拍照 / 相册"
+    >
+      <!-- 相机/相册 SVG 图标 -->
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M20 5h-3.2l-1.4-2.1A1 1 0 0 0 14.5 2h-5a1 1 0 0 0-.9.6L7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-8 12a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
+        />
+      </svg>
+    </button>
+
+    <form id="chatForm" class="chat-input-bar__form">
+      <input
+        id="messageInput"
+        type="text"
+        class="chat-input-bar__text"
+        placeholder="发消息..."
+        autocomplete="off"
+        enterkeyhint="send"
+      />
+      <button type="submit" class="chat-input-bar__send" aria-label="发送">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M3.4 20.5 21 12 3.4 3.5 3 10l12 2-12 2z"
+          />
+        </svg>
+      </button>
+    </form>
+
+    <!-- 预览区：展示即将发送的图片 -->
+    <div id="imagePreview" class="image-preview" hidden>
+      <img id="imagePreviewImg" alt="待发送图片" />
+      <button id="imageRemove" type="button" class="image-preview__remove" aria-label="移除图片">×</button>
+    </div>
+  </footer>
+
+  <!-- 环境配置（API 地址） -->
+  <script src="./env.js"></script>
+  <!-- 主逻辑 -->
+  <script src="./app.js" defer></script>
+
+  <!-- 注册 Service Worker（仅在支持的浏览器中） -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./service-worker.js').catch(function (err) {
+          console.warn('SW 注册失败：', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
