@@ -439,3 +439,37 @@ body {
     background: var(--color-bg);
   }
 }
+
+/* ============================================================
+   环境标识（env-badge）
+   ============================================================ */
+.env-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  margin: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background-color: #00a870; /* 默认生产环境：绿色 */
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+
+.env-badge:hover {
+  opacity: 1;
+}
+
+.env-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  background: #fff;
+  border-radius: 50%;
+  vertical-align: middle;
+}

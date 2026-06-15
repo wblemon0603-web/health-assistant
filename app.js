@@ -19,12 +19,14 @@
   var STORAGE_KEY = 'health_assistant_messages_v1';
   var SESSION_KEY = 'health_assistant_session_id';
 
-  // 从 env.js 读取配置
-  var API_URL = (window.__HELPER_CONFIG__ && window.__HELPER_CONFIG__.API_URL)
-    || 'https://tswpbzbxdx.coze.site/api/chat';
-
-  var HISTORY_API_URL = (window.__HELPER_CONFIG__ && window.__HELPER_CONFIG__.HISTORY_API_URL)
-    || 'https://tswpbzbxdx.coze.site/api/messages';
+  // 从 env.js 读取配置（env.js 会根据访问域名自动选择 prod/dev 环境）
+  var cfg = window.__HELPER_CONFIG__ || {
+    env: 'prod',
+    API_URL: 'https://tswpbzbxdx.coze.site/api/chat',
+    HISTORY_API_URL: 'https://tswpbzbxdx.coze.site/api/messages'
+  };
+  var API_URL = cfg.API_URL;
+  var HISTORY_API_URL = cfg.HISTORY_API_URL;
 
   // ----- 运行时状态 -----
   var pendingImageDataUrl = null;
@@ -417,6 +419,20 @@
   function init() {
     // 绑定事件
     bindEvents();
+
+    // 显示当前环境标识（prod 环境不显示，dev 环境显示橙色标识）
+    var envBadgeEl = document.getElementById('envBadge');
+    if (envBadgeEl && cfg) {
+      envBadgeEl.textContent = cfg.label || '';
+      if (cfg.color) envBadgeEl.style.backgroundColor = cfg.color;
+      // 点击环境标识，快速切换：点击可手动切换环境（方便调试）
+      envBadgeEl.addEventListener('click', function () {
+        var target = cfg.env === 'dev' ? 'prod' : 'dev';
+        window.location.search = window.location.search
+          ? window.location.search.replace(/([?&])env=[^&]*/, '$1env=' + target) + (window.location.search ? '' : '?env=' + target);
+      });
+      envBadgeEl.title = '当前环境：' + (cfg.label || cfg.env) + '（点击切换）';
+    }
 
     // 先用本地缓存渲染（保证秒开）
     messages = loadMessagesFromLocal();
