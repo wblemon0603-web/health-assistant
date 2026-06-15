@@ -6,7 +6,7 @@
      3. 每条消息通过 /api/messages/save 同步到云端
      4. 打字动画 + Markdown 渲染
    后端接口约定（扣子提供）：
-     POST /api/chat  { message, image_url } -> { reply, session_id, ... }
+     POST /api/chat  { message, image_url, session_id } -> { reply, session_id, ... }
      POST /api/messages/save { role, content, session_id, image_url } -> { success, message_id }
      GET  /api/messages/history?session_id=xxx&limit=50 -> { messages: [...] }
    数据库字段：role (user/assistant), content, image_url, session_id, timestamp
