@@ -1,10 +1,14 @@
 // ============================================================
-// 环境配置文件：根据访问环境自动切换后端 URL
+// 环境配置文件：统一指向生产后端
 // ============================================================
-// - 生产环境（正式域名访问）：自动使用 PROD 配置
-// - 开发环境（localhost / IP 访问）：自动使用 DEV 配置
-// - 支持 URL 参数手动切换：?env=dev  或  ?env=prod
-// - 在页面底部会显示当前使用的环境标识
+// 规则（已简化，避免 IP 访问误判为开发环境）：
+//   - 默认：所有访问方式都用 生产环境 API
+//   - 显式加 ?env=dev：切换到开发环境 API（仅限调试用）
+//
+// 为什么这样设计？
+//   手机通过 10.95.19.184 局域网 IP 访问时，之前会被误判为"开发环境"
+//   导致请求发到了测试域名，而测试域名可能没有部署后端服务
+//   现在统一用生产环境，确保任何设备都能正常对话
 // ============================================================
 
 // 两套环境配置
@@ -23,15 +27,9 @@ var ENV_CONFIG = {
   }
 };
 
-// 判断访问来源：localhost / 127.0.0.1 / IP 地址 => 开发环境；否则 => 生产环境
-var host = window.location.hostname;
-var isLocalDev = host === 'localhost' || host === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(host);
-
-// 支持 URL 参数手动强制切换（优先级最高）
+// 只有显式 ?env=dev 才用开发环境，其他情况都用生产环境
 var urlParamMatch = window.location.search.match(/[?&]env=(dev|prod)/i);
-var envKey = urlParamMatch
-  ? urlParamMatch[1].toLowerCase()
-  : (isLocalDev ? 'dev' : 'prod');
+var envKey = urlParamMatch ? urlParamMatch[1].toLowerCase() : 'prod';
 
 // 生效配置
 window.__HELPER_CONFIG__ = {
