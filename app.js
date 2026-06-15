@@ -21,10 +21,10 @@
 
   // 从 env.js 读取配置
   var API_URL = (window.__HELPER_CONFIG__ && window.__HELPER_CONFIG__.API_URL)
-    || 'https://676170a9-09cc-4651-975b-b7a7d3896547.dev.coze.site/api/chat';
+    || 'https://tswpbzbxdx.coze.site/api/chat';
 
   var HISTORY_API_URL = (window.__HELPER_CONFIG__ && window.__HELPER_CONFIG__.HISTORY_API_URL)
-    || 'https://676170a9-09cc-4651-975b-b7a7d3896547.dev.coze.site/api/messages';
+    || 'https://tswpbzbxdx.coze.site/api/messages';
 
   // ----- 运行时状态 -----
   var pendingImageDataUrl = null;
