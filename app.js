@@ -257,7 +257,10 @@
 
   /** 调用 POST /api/chat 获取 AI 回复 */
   function callChatApi(text, imageDataUrl) {
-    var payload = { message: text || '' };
+    var payload = {
+      message: text || '',
+      session_id: sessionId  // ← 关键修复：传入前端统一的 session_id
+    };
     if (imageDataUrl) payload.image_url = imageDataUrl;
 
     return fetch(API_URL, {
