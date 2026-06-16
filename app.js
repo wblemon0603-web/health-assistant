@@ -19,11 +19,11 @@
   var STORAGE_KEY = 'health_assistant_messages_v1';
   var SESSION_KEY = 'health_assistant_session_id';
 
-  // 从 env.js 读取配置（env.js 会根据访问域名自动选择 prod/dev 环境）
+  // 从 env.js 读取配置（env.js 统一指向可用的扣子后端地址）
   var cfg = window.__HELPER_CONFIG__ || {
     env: 'prod',
-    API_URL: 'https://tswpbzbxdx.coze.site/api/chat',
-    HISTORY_API_URL: 'https://tswpbzbxdx.coze.site/api/messages'
+    API_URL: 'https://676170a9-09cc-4651-975b-b7a7d3896547.dev.coze.site/api/chat',
+    HISTORY_API_URL: 'https://676170a9-09cc-4651-975b-b7a7d3896547.dev.coze.site/api/messages'
   };
   var API_URL = cfg.API_URL;
   var HISTORY_API_URL = cfg.HISTORY_API_URL;
