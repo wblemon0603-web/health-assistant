@@ -639,10 +639,42 @@
     }
     renderAll();
 
-    // 后台异步从云端拉取最新历史
+    // 后台异步从云端拉取最新历史（去重合并，避免重复）
     loadMessagesFromCloud().then(function (cloudMsgs) {
       if (cloudMsgs && cloudMsgs.length > 0) {
-        messages = cloudMsgs;
+        // ⭐ 去重：云端消息优先，补充本地未同步的消息
+        var merged = [];
+        var seenCloudIds = new Set();
+        var seenLocalSignatures = new Set();
+        
+        // 先加云端消息，记录已见过的 cloudId
+        cloudMsgs.forEach(function (m) {
+          if (m.cloudId) seenCloudIds.add(m.cloudId);
+          // 记录本地签名用于去重（防止云端返回重复）
+          var sig = m.role + '|' + m.ts + '|' + (m.text || '').slice(0, 50);
+          seenLocalSignatures.add(sig);
+          merged.push(m);
+        });
+        
+        // 再补充本地有但云端没有的消息
+        messages.forEach(function (m) {
+          // 有 cloudId 但云端没有 → 补充
+          if (m.cloudId && !seenCloudIds.has(m.cloudId)) {
+            merged.push(m);
+          }
+          // 没有 cloudId（还没同步）且未在云端见过 → 补充
+          if (!m.cloudId) {
+            var sig = m.role + '|' + m.ts + '|' + (m.text || '').slice(0, 50);
+            if (!seenLocalSignatures.has(sig)) {
+              merged.push(m);
+            }
+          }
+        });
+        
+        // 按时间排序
+        merged.sort(function (a, b) { return a.ts - b.ts; });
+        
+        messages = merged;
         saveMessagesToLocal(messages);
         renderAll();
       }
