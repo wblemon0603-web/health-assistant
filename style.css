@@ -25,6 +25,9 @@
   --color-send-bg-disabled: #c7c7cc;
   --color-send-text: #ffffff;
 
+  --color-ok: #00a870;     /* 成功色（饮食记录入库） */
+  --color-fail: #ff3b30;   /* 失败色 */
+
   --radius-bubble: 20px;
   --radius-input: 22px;
 
@@ -132,6 +135,13 @@ body {
   border-radius: 8px;
 }
 
+/* ⭐ 新增：左侧按钮（🍽 今日饮食） */
+.app-header__action--left {
+  right: auto;
+  left: 12px;
+  font-size: 18px;
+}
+
 .app-header__action:active {
   background: rgba(0, 122, 255, 0.12);
 }
@@ -147,19 +157,33 @@ body {
   gap: 8px;
 }
 
-/* 单条消息 */
+/* 单条消息（气泡 + 下方的 meta 标签） */
 .msg {
   display: flex;
+  flex-direction: column;
   max-width: 100%;
 }
 
 .msg--user {
-  justify-content: flex-end;
+  align-items: flex-end;
 }
 
 .msg--ai {
-  justify-content: flex-start;
+  align-items: flex-start;
 }
+
+/* ⭐ 新增：AI 消息气泡下方的工具执行小标签 */
+.msg__meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-muted);
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg__meta--ok { color: var(--color-ok); }
+.msg__meta--fail { color: var(--color-fail); }
 
 .msg__bubble {
   max-width: 80%;
@@ -472,4 +496,146 @@ body {
   background: #fff;
   border-radius: 50%;
   vertical-align: middle;
+}
+
+/* ============================================================
+   ⭐ 新增：今日饮食弹层
+   ============================================================ */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.modal__card {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  background: var(--color-input-bg);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-input-border);
+}
+
+.modal__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal__close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.15);
+  font-size: 18px;
+  line-height: 28px;
+  padding: 0;
+}
+
+.modal__body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  font-size: 14px;
+}
+
+/* 饮食统计块 */
+.food-stat {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(0, 168, 112, 0.08);
+}
+
+.food-stat--over {
+  background: rgba(255, 59, 48, 0.08);
+}
+
+.food-stat__item {
+  flex: 1;
+  text-align: center;
+}
+
+.food-stat__num {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.food-stat__label {
+  font-size: 11px;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+/* 单条饮食记录 */
+.food-log-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-input-border);
+}
+
+.food-log-item:last-child {
+  border-bottom: none;
+}
+
+.food-log-item__meal {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--color-user-bubble);
+  color: #fff;
+  font-size: 11px;
+  margin-right: 8px;
+}
+
+.food-log-item__cal {
+  float: right;
+  font-weight: 600;
+  color: var(--color-user-bubble);
+}
+
+.food-log-item__list {
+  margin-top: 6px;
+  padding-left: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+  list-style: none;
+}
+
+.food-log-item__list li {
+  padding: 2px 0;
+}
+
+/* 桌面端弹层宽度限制 */
+@media (min-width: 640px) {
+  .modal__card {
+    max-width: 460px;
+  }
 }

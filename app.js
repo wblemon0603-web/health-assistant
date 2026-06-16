@@ -1,15 +1,17 @@
 /* ==========================================================================
-   健康助手 - 前端主逻辑
+   健康助手 - 前端主逻辑（修复版）
    功能：
      1. 发送文本/图片消息 -> 调用 /api/chat -> 显示回复
      2. 启动时从 /api/messages/history 加载历史消息
      3. 每条消息通过 /api/messages/save 同步到云端
      4. 打字动画 + Markdown 渲染
-   后端接口约定（扣子提供）：
-     POST /api/chat  { message, image_url, session_id } -> { reply, session_id, ... }
-     POST /api/messages/save { role, content, session_id, image_url } -> { success, message_id }
-     GET  /api/messages/history?session_id=xxx&limit=50 -> { messages: [...] }
-   数据库字段：role (user/assistant), content, image_url, session_id, timestamp
+     5. 顶部 🍽 一键查看今日饮食 /food-logs
+     6. 长按"清空"按钮 → 诊断 /api/health
+   修复点（相对于原版本）：
+     - callChatApi 返回 { reply, usedTools, foodLogged, toolErrors } 结构化对象
+     - AI 消息气泡下方新增 meta 标签（已记录/失败/使用工具）
+     - 错误信息透传完整响应正文，不再只显示 HTTP 500
+     - 新增 今日饮食（/food-logs） 和 诊断（/health） 入口
    ========================================================================== */
 
 (function () {
@@ -19,21 +21,23 @@
   var STORAGE_KEY = 'health_assistant_messages_v1';
   var SESSION_KEY = 'health_assistant_session_id';
 
-  // 从 env.js 读取配置（env.js 会根据访问方式自动判断 prod/dev）
+  // 从 env.js 读取配置
   var cfg = window.__HELPER_CONFIG__ || {
     env: 'prod',
     API_URL: 'https://tswpbzbxdx.coze.site/api/chat',
-    HISTORY_API_URL: 'https://tswpbzbxdx.coze.site/api/messages'
+    HISTORY_API_URL: 'https://tswpbzbxdx.coze.site/api/messages',
+    API_BASE: 'https://tswpbzbxdx.coze.site/api'
   };
   var API_URL = cfg.API_URL;
   var HISTORY_API_URL = cfg.HISTORY_API_URL;
+  var API_BASE = cfg.API_BASE;
 
   // ----- 运行时状态 -----
   var pendingImageDataUrl = null;
   var isWaiting = false;
   var typingEl = null;
 
-  // session_id：区分不同对话窗口，首次访问时生成一个随机 ID
+  // session_id：区分不同对话窗口，首次访问生成一个随机 ID
   var sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
     sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -54,7 +58,6 @@
       var parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      console.warn('[本地] 读取消息失败:', e);
       return [];
     }
   }
@@ -62,22 +65,17 @@
   function saveMessagesToLocal(msgList) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(msgList));
-    } catch (e) {
-      console.warn('[本地] 保存消息失败:', e);
-    }
+    } catch (e) {}
   }
 
   // ==========================================================================
   // 2. 云端同步（/api/messages/save 和 /api/messages/history）
   // ==========================================================================
 
-  /**
-   * 从云端加载历史消息（按时间正序返回）
-   * 返回本地统一格式的消息数组
-   */
   function loadMessagesFromCloud() {
-    var url = HISTORY_API_URL + '/history?session_id=' + encodeURIComponent(sessionId) + '&limit=100';
-    return fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+    var url = HISTORY_API_URL + '/history?session_id=' +
+      encodeURIComponent(sessionId) + '&limit=100';
+    return fetch(url, { method: 'GET' })
       .then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
@@ -97,17 +95,13 @@
       })
       .catch(function (err) {
         console.warn('[云端] 加载历史消息失败:', err.message);
-        return null; // 返回 null 表示云端不可用，用本地
+        return null;
       });
   }
 
-  /**
-   * 保存单条消息到云端
-   * 字段：role (user/assistant), content, session_id, image_url
-   */
   function saveMessageToCloud(msg) {
     var payload = {
-      role: msg.role === 'ai' ? 'assistant' : 'user', // 后端用 assistant
+      role: msg.role === 'ai' ? 'assistant' : 'user',
       content: msg.text || '',
       session_id: sessionId,
       image_url: msg.image || null
@@ -123,7 +117,6 @@
         return res.json();
       })
       .then(function (data) {
-        console.log('[云端] 消息已保存:', data);
         if (data && data.message_id) msg.cloudId = data.message_id;
         return msg;
       })
@@ -144,31 +137,24 @@
         html = typeof window.marked.parse === 'function'
           ? window.marked.parse(text)
           : window.marked(text);
-      } catch (e) {
-        html = escapeHtml(text);
-      }
+      } catch (e) { html = escapeHtml(text); }
     } else {
       html = escapeHtml(text);
     }
-    if (window.DOMPurify) {
-      html = window.DOMPurify.sanitize(html);
-    }
+    if (window.DOMPurify) html = window.DOMPurify.sanitize(html);
     return html;
   }
 
   function escapeHtml(str) {
     return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
   }
 
   function createMessageEl(msg) {
     var wrap = document.createElement('div');
     wrap.className = 'msg msg--' + msg.role;
-
     var bubble = document.createElement('div');
     bubble.className = 'msg__bubble';
 
@@ -192,6 +178,17 @@
     }
 
     wrap.appendChild(bubble);
+
+    // ⭐ 新增：AI 消息气泡下方的工具执行小标签
+    if (msg.role === 'ai' && msg.meta) {
+      var meta = document.createElement('div');
+      meta.className = 'msg__meta ' +
+        (msg.meta.kind === 'ok' ? 'msg__meta--ok' :
+         msg.meta.kind === 'fail' ? 'msg__meta--fail' : '');
+      meta.textContent = msg.meta.text;
+      wrap.appendChild(meta);
+    }
+
     return wrap;
   }
 
@@ -202,21 +199,16 @@
     var bubble = document.createElement('div');
     bubble.className = 'msg__bubble';
     bubble.innerHTML =
-      '<span class="typing">' +
-        'AI 正在输入' +
-        '<span class="typing__dots"><span></span><span></span><span></span></span>' +
-      '</span>';
+      '<span class="typing">AI 正在输入' +
+      '<span class="typing__dots"><span></span><span></span><span></span></span></span>';
     wrap.appendChild(bubble);
-    var chatEl = document.getElementById('chat');
-    chatEl.appendChild(wrap);
+    document.getElementById('chat').appendChild(wrap);
     typingEl = wrap;
     scrollToBottom();
   }
 
   function hideTyping() {
-    if (typingEl && typingEl.parentNode) {
-      typingEl.parentNode.removeChild(typingEl);
-    }
+    if (typingEl && typingEl.parentNode) typingEl.parentNode.removeChild(typingEl);
     typingEl = null;
   }
 
@@ -230,20 +222,17 @@
   function renderAll() {
     var chatEl = document.getElementById('chat');
     chatEl.innerHTML = '';
-    messages.forEach(function (m) {
-      chatEl.appendChild(createMessageEl(m));
-    });
+    messages.forEach(function (m) { chatEl.appendChild(createMessageEl(m)); });
     scrollToBottom();
   }
 
   function renderNewMessage(msg) {
-    var chatEl = document.getElementById('chat');
-    chatEl.appendChild(createMessageEl(msg));
+    document.getElementById('chat').appendChild(createMessageEl(msg));
     scrollToBottom();
   }
 
   // ==========================================================================
-  // 4. 发送消息与 API 调用
+  // 4. 发送消息与 API 调用（⭐ 关键改造）
   // ==========================================================================
 
   function fileToDataUrl(file) {
@@ -255,11 +244,14 @@
     });
   }
 
-  /** 调用 POST /api/chat 获取 AI 回复 */
+  /**
+   * ⭐ 修复：返回完整结构化对象，让上层能拿到 food_logged / tool_errors / used_tools
+   * 同时把后端错误正文透传出来，不再只看到 "HTTP 500"
+   */
   function callChatApi(text, imageDataUrl) {
     var payload = {
       message: text || '',
-      session_id: sessionId  // ← 关键修复：传入前端统一的 session_id
+      session_id: sessionId
     };
     if (imageDataUrl) payload.image_url = imageDataUrl;
 
@@ -269,12 +261,24 @@
       body: JSON.stringify(payload)
     })
       .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
+        // 先拿完整文本，再根据 status 判断是否抛错
+        return res.text().then(function (rawText) {
+          if (!res.ok) {
+            // ⭐ 修复：把后端的错误正文也透传出来
+            var snippet = rawText ? rawText.slice(0, 300) : '';
+            throw new Error('HTTP ' + res.status + (snippet ? ' — ' + snippet : ''));
+          }
+          try { return JSON.parse(rawText); }
+          catch (e) { throw new Error('响应不是合法 JSON: ' + rawText.slice(0, 200)); }
+        });
       })
       .then(function (data) {
-        // 兼容多种可能的字段名
-        return (data && (data.reply || data.message || data.content)) || '（无回复内容）';
+        return {
+          reply: (data && (data.reply || data.message || data.content)) || '（无回复内容）',
+          usedTools: (data && data.used_tools) || [],
+          foodLogged: !!(data && data.food_logged),
+          toolErrors: (data && data.tool_errors) || []
+        };
       });
   }
 
@@ -285,7 +289,7 @@
     isWaiting = true;
     setInputDisabled(true);
 
-    // 1) 添加并渲染用户消息
+    // 添加并渲染用户消息
     var userMsg = {
       role: 'user',
       text: text || '',
@@ -295,33 +299,54 @@
     messages.push(userMsg);
     saveMessagesToLocal(messages);
     renderNewMessage(userMsg);
-    saveMessageToCloud(userMsg); // 异步保存到云端
+    saveMessageToCloud(userMsg);
 
-    // 2) 显示打字动画
+    // 显示打字动画
     showTyping();
 
-    // 3) 调用后端获取 AI 回复
+    // 调用后端获取 AI 回复
     callChatApi(text, imageDataUrl)
-      .then(function (replyText) {
+      .then(function (result) {
+        hideTyping();
+
+        // ⭐ 构造 meta 信息显示在 AI 消息气泡下方
+        var meta = null;
+        if (result.foodLogged) {
+          meta = { kind: 'ok', text: '✓ 已记录到今日饮食' };
+        } else if (result.toolErrors && result.toolErrors.length > 0) {
+          var hasFoodIntent = result.toolErrors.some(function (e) {
+            return e.indexOf('detected_food_intent') !== -1;
+          });
+          if (hasFoodIntent) {
+            meta = { kind: 'fail', text: '⚠ 似乎在记饮食但未能写入，可手动点 🍽 查看' };
+          } else {
+            meta = { kind: 'fail', text: '⚠ 工具失败: ' + result.toolErrors.join('; ') };
+          }
+        } else if (result.usedTools && result.usedTools.length > 0) {
+          meta = { kind: 'info', text: '已使用工具: ' + result.usedTools.join(', ') };
+        }
+
         var aiMsg = {
           role: 'ai',
-          text: replyText,
+          text: result.reply,
           image: null,
-          ts: Date.now()
+          ts: Date.now(),
+          meta: meta
         };
-        hideTyping();
         messages.push(aiMsg);
         saveMessagesToLocal(messages);
         renderNewMessage(aiMsg);
-        saveMessageToCloud(aiMsg); // 异步保存到云端
+        saveMessageToCloud(aiMsg);
       })
       .catch(function (err) {
         console.error('调用接口失败:', err);
         hideTyping();
         var errMsg = {
           role: 'ai',
-          text: '⚠️ 抱歉，暂时无法连接到服务，请稍后再试。\n\n错误：' + err.message,
-          ts: Date.now()
+          text: '⚠️ 抱歉，暂时无法连接到服务。\n\n错误：' + err.message +
+                '\n\n可点击顶部 🍽 旁试试，或在 URL 后加 `?env=dev` 切换到开发环境。',
+          ts: Date.now(),
+          meta: { kind: 'fail', text: '请求失败' }
         };
         messages.push(errMsg);
         saveMessagesToLocal(messages);
@@ -343,11 +368,102 @@
   }
 
   // ==========================================================================
-  // 5. 事件绑定
+  // 5. ⭐ 新增：今日饮食查看（自检入口） + 诊断
+  // ==========================================================================
+
+  function fetchTodayFoodLogs() {
+    var url = API_BASE + '/food-logs';
+    return fetch(url, { method: 'GET' })
+      .then(function (res) {
+        return res.text().then(function (raw) {
+          if (!res.ok) throw new Error('HTTP ' + res.status + ' — ' + raw.slice(0, 200));
+          try { return JSON.parse(raw); }
+          catch (e) { throw new Error('响应不是合法 JSON: ' + raw.slice(0, 200)); }
+        });
+      });
+  }
+
+  function renderFoodLogModal(data) {
+    var body = document.getElementById('foodModalBody');
+    if (!data) {
+      body.innerHTML = '<p style="color:var(--color-muted)">没有数据</p>';
+      return;
+    }
+
+    var total = data.total_calories || 0;
+    var target = data.target_calories || 1750;
+    var remaining = target - total;
+    var isOver = remaining < 0;
+
+    var html = '';
+    html += '<div class="food-stat ' + (isOver ? 'food-stat--over' : '') + '">';
+    html += '  <div class="food-stat__item"><div class="food-stat__num">' + total + '</div><div class="food-stat__label">已摄入 kcal</div></div>';
+    html += '  <div class="food-stat__item"><div class="food-stat__num">' + target + '</div><div class="food-stat__label">每日目标</div></div>';
+    html += '  <div class="food-stat__item"><div class="food-stat__num">' + (isOver ? '超 ' + (-remaining) : remaining) + '</div><div class="food-stat__label">' + (isOver ? '超出' : '剩余') + ' kcal</div></div>';
+    html += '</div>';
+    html += '<p style="color:var(--color-muted);font-size:12px;margin-bottom:8px">日期：' + (data.date || '今天') + '</p>';
+
+    var logs = data.logs || [];
+    if (logs.length === 0) {
+      html += '<p style="color:var(--color-muted);text-align:center;padding:20px 0">' +
+              '今天还没有饮食记录<br/><br/>' +
+              '<small>试试在对话里说"我中午吃了一份番茄炒蛋盖饭"</small>' +
+              '</p>';
+    } else {
+      logs.forEach(function (log) {
+        var mealLabel = {
+          breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '加餐'
+        }[log.meal_type] || log.meal_type;
+        html += '<div class="food-log-item">';
+        html += '  <span class="food-log-item__meal">' + mealLabel + '</span>';
+        html += '  <span class="food-log-item__cal">' + log.calories + ' kcal</span>';
+        if (Array.isArray(log.food_items)) {
+          html += '  <ul class="food-log-item__list">';
+          log.food_items.forEach(function (item) {
+            html += '<li>· ' + escapeHtml(item.name) + ' (' + escapeHtml(item.amount || '') + ') ' + item.calories + ' kcal</li>';
+          });
+          html += '  </ul>';
+        }
+        html += '</div>';
+      });
+    }
+
+    body.innerHTML = html;
+  }
+
+  function openFoodModal() {
+    var modal = document.getElementById('foodModal');
+    var body = document.getElementById('foodModalBody');
+    modal.hidden = false;
+    body.innerHTML = '加载中...';
+    fetchTodayFoodLogs()
+      .then(renderFoodLogModal)
+      .catch(function (err) {
+        body.innerHTML = '<p style="color:var(--color-fail)">' +
+          '❌ 加载失败<br/><br/>' + escapeHtml(err.message) +
+          '<br/><br/><small>这通常意味着后端没启动、URL 配错、或 API 不存在</small></p>';
+      });
+  }
+
+  function closeFoodModal() {
+    document.getElementById('foodModal').hidden = true;
+  }
+
+  // ⭐ 诊断：调 /api/health（长按"清空"按钮调出）
+  function runDiagnostics() {
+    var url = API_BASE + '/health';
+    fetch(url).then(function (r) { return r.text(); }).then(function (raw) {
+      alert('诊断结果（API: ' + API_BASE + '）\n\n' + raw);
+    }).catch(function (err) {
+      alert('诊断失败：' + err.message + '\n\nAPI: ' + API_BASE);
+    });
+  }
+
+  // ==========================================================================
+  // 6. 事件绑定
   // ==========================================================================
 
   function bindEvents() {
-    // 表单提交
     var formEl = document.getElementById('chatForm');
     var inputEl = document.getElementById('messageInput');
     var imageInputEl = document.getElementById('imageInput');
@@ -356,7 +472,10 @@
     var imagePreviewImgEl = document.getElementById('imagePreviewImg');
     var imageRemoveEl = document.getElementById('imageRemove');
     var clearBtnEl = document.getElementById('clearBtn');
+    var foodLogBtnEl = document.getElementById('foodLogBtn');
+    var foodModalEl = document.getElementById('foodModal');
 
+    // 发送消息
     formEl.addEventListener('submit', function (e) {
       e.preventDefault();
       var text = inputEl.value.trim();
@@ -367,6 +486,7 @@
       clearPendingImage();
     });
 
+    // 图片选择按钮
     imageBtnEl.addEventListener('click', function () {
       imageInputEl.value = '';
       imageInputEl.click();
@@ -394,6 +514,7 @@
       });
     });
 
+    // 移除预览图
     imageRemoveEl.addEventListener('click', clearPendingImage);
 
     function clearPendingImage() {
@@ -403,36 +524,60 @@
       imageInputEl.value = '';
     }
 
+    // 清空消息
     clearBtnEl.addEventListener('click', function () {
       if (!confirm('确定要清空所有聊天记录吗？')) return;
       messages = [];
       saveMessagesToLocal(messages);
-      // 同时重置 session_id，确保下次加载云端不会读到旧消息
+      // 重置 session_id
       sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       localStorage.setItem(SESSION_KEY, sessionId);
       clearPendingImage();
       renderAll();
     });
+
+    // ⭐ 今日饮食按钮
+    foodLogBtnEl.addEventListener('click', openFoodModal);
+
+    // ⭐ 长按"清空"调出诊断
+    var pressTimer = null;
+    clearBtnEl.addEventListener('touchstart', function () {
+      pressTimer = setTimeout(runDiagnostics, 1500);
+    });
+    clearBtnEl.addEventListener('touchend', function () {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    });
+    clearBtnEl.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      runDiagnostics();
+    });
+
+    // 弹层关闭（点击背景或 ×）
+    foodModalEl.addEventListener('click', function (e) {
+      if (e.target.dataset && e.target.dataset.close) closeFoodModal();
+    });
   }
 
   // ==========================================================================
-  // 6. 初始化
+  // 7. 初始化
   // ==========================================================================
 
   function init() {
-    // 绑定事件
     bindEvents();
 
-    // 显示当前环境标识（prod 环境不显示，dev 环境显示橙色标识）
+    // 显示当前环境标识
     var envBadgeEl = document.getElementById('envBadge');
     if (envBadgeEl && cfg) {
       envBadgeEl.textContent = cfg.label || '';
       if (cfg.color) envBadgeEl.style.backgroundColor = cfg.color;
-      // 点击环境标识，快速切换：点击可手动切换环境（方便调试）
       envBadgeEl.addEventListener('click', function () {
         var target = cfg.env === 'dev' ? 'prod' : 'dev';
-        window.location.search = window.location.search
-          ? window.location.search.replace(/([?&])env=[^&]*/, '$1env=' + target) + (window.location.search ? '' : '?env=' + target);
+        var search = window.location.search;
+        if (search.match(/[?&]env=/i)) {
+          window.location.search = search.replace(/([?&])env=[^&]*/, '$1env=' + target);
+        } else {
+          window.location.search = (search ? search + '&' : '?') + 'env=' + target;
+        }
       });
       envBadgeEl.title = '当前环境：' + (cfg.label || cfg.env) + '（点击切换）';
     }
@@ -440,10 +585,14 @@
     // 先用本地缓存渲染（保证秒开）
     messages = loadMessagesFromLocal();
     if (messages.length === 0) {
-      // 首次访问，显示欢迎消息
       var welcome = {
         role: 'ai',
-        text: '你好，我是你的健康助手 👋\n\n可以问我关于饮食、运动、作息、症状等方面的问题，也可以**上传一张图片**（如化验单、食物照片）让我帮你分析。',
+        text: '你好，我是你的健康助手 👋\n\n' +
+              '试试这样跟我说：\n' +
+              '· "我中午吃了一份番茄炒蛋盖饭"\n' +
+              '· "上传一张食物照片"\n' +
+              '· "今天吃了多少卡？"\n\n' +
+              '点击左上角 🍽 可查看今日饮食记录。',
         ts: Date.now()
       };
       messages.push(welcome);
@@ -452,24 +601,20 @@
     }
     renderAll();
 
-    // 后台异步从云端拉取最新历史；如果云端有数据，覆盖本地
+    // 后台异步从云端拉取最新历史
     loadMessagesFromCloud().then(function (cloudMsgs) {
       if (cloudMsgs && cloudMsgs.length > 0) {
         messages = cloudMsgs;
         saveMessagesToLocal(messages);
         renderAll();
-        console.log('[初始化] 已从云端加载 ' + cloudMsgs.length + ' 条消息');
       }
     });
 
-    console.log('[健康助手] 就绪。session_id:', sessionId);
+    console.log('[健康助手] 就绪 | env=' + cfg.env + ' | session=' + sessionId + ' | API=' + API_BASE);
   }
 
   init();
 
   // 软键盘弹起时滚动到底
-  window.addEventListener('resize', function () {
-    scrollToBottom();
-  });
-
+  window.addEventListener('resize', function () { scrollToBottom(); });
 })();

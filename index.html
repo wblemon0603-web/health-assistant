@@ -26,6 +26,8 @@
   <!-- 顶部导航栏（类似 iOS 导航栏） -->
   <header class="app-header">
     <div class="app-header__inner">
+      <!-- ⭐ 新增：左侧按钮 - 今日饮食 -->
+      <button id="foodLogBtn" class="app-header__action app-header__action--left" type="button" title="今日饮食">🍽</button>
       <h1 class="app-header__title">健康助手</h1>
       <span id="envBadge" class="env-badge" title="当前后端环境">生产</span>
       <button id="clearBtn" class="app-header__action" type="button" title="清空消息">清空</button>
@@ -89,6 +91,18 @@
       <button id="imageRemove" type="button" class="image-preview__remove" aria-label="移除图片">×</button>
     </div>
   </footer>
+
+  <!-- ⭐ 新增：今日饮食弹层 -->
+  <div id="foodModal" class="modal" hidden>
+    <div class="modal__backdrop" data-close="1"></div>
+    <div class="modal__card">
+      <div class="modal__header">
+        <h3 class="modal__title">今日饮食</h3>
+        <button class="modal__close" data-close="1" aria-label="关闭">×</button>
+      </div>
+      <div id="foodModalBody" class="modal__body">加载中...</div>
+    </div>
+  </div>
 
   <!-- 环境配置（API 地址） -->
   <script src="./env.js"></script>

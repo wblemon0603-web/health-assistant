@@ -7,7 +7,7 @@
      - 接口请求（/chat）：不缓存，直接走网络
    ========================================================================== */
 
-var CACHE_NAME = 'health-assistant-v1';
+var CACHE_NAME = 'health-assistant-v2';
 var PRECACHE_URLS = [
   './',
   './index.html',
@@ -61,8 +61,14 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
-  // 接口请求：不走缓存
-  if (url.pathname.indexOf('/chat') !== -1) {
+  // ⭐ 接口请求：不走缓存（所有 /api/* 下的路径）
+  if (url.pathname.indexOf('/chat') !== -1 ||
+      url.pathname.indexOf('/messages') !== -1 ||
+      url.pathname.indexOf('/food-logs') !== -1 ||
+      url.pathname.indexOf('/health') !== -1 ||
+      url.pathname.indexOf('/tools') !== -1 ||
+      url.pathname.indexOf('/profile') !== -1 ||
+      url.pathname.indexOf('/meal-history') !== -1) {
     return;
   }
 
