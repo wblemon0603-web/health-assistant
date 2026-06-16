@@ -17,7 +17,7 @@
 // ============================================================
 
 var DEV_API_BASE = 'https://676170a9-09cc-4651-975b-b7a7d3896547.dev.coze.site/api';
-var PROD_API_BASE = 'https://676170a9-09cc-4651-975b-b7a7d3896547.coze.site/api';
+var PROD_API_BASE = 'https://tswpbzbxdx.coze.site/api';
 
 // 两套环境配置
 var ENV_CONFIG = {

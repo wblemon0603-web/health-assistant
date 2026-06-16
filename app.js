@@ -22,8 +22,8 @@
   // 从 env.js 读取配置（env.js 会根据访问方式自动判断 prod/dev）
   var cfg = window.__HELPER_CONFIG__ || {
     env: 'prod',
-    API_URL: 'https://676170a9-09cc-4651-975b-b7a7d3896547.coze.site/api/chat',
-    HISTORY_API_URL: 'https://676170a9-09cc-4651-975b-b7a7d3896547.coze.site/api/messages'
+    API_URL: 'https://tswpbzbxdx.coze.site/api/chat',
+    HISTORY_API_URL: 'https://tswpbzbxdx.coze.site/api/messages'
   };
   var API_URL = cfg.API_URL;
   var HISTORY_API_URL = cfg.HISTORY_API_URL;
