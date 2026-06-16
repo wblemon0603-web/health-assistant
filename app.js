@@ -47,6 +47,9 @@
   // 当前内存中的消息列表
   var messages = [];
 
+  // 🍽 弹层是否当前打开（用于 AI 改动后是否需要同步重渲染）
+  var foodModalOpen = false;
+
   // ==========================================================================
   // 1. 消息持久化（localStorage 作为离线缓存）
   // ==========================================================================
@@ -309,10 +312,19 @@
       .then(function (result) {
         hideTyping();
 
-        // ⭐ 构造 meta 信息显示在 AI 消息气泡下方
+        // ⭐ 构造 meta 信息显示在 AI 消息气泡下方（优化：删/改也显示 ✓ 状态）
         var meta = null;
+        var usedSet = new Set(
+          (result.usedTools || []).map(function (t) {
+            return String(t).replace('(failed)', '');
+          })
+        );
         if (result.foodLogged) {
           meta = { kind: 'ok', text: '✓ 已记录到今日饮食' };
+        } else if (usedSet.has('delete_food_log')) {
+          meta = { kind: 'ok', text: '✓ 已从今日饮食删除' };
+        } else if (usedSet.has('update_food_log')) {
+          meta = { kind: 'ok', text: '✓ 已更新今日饮食' };
         } else if (result.toolErrors && result.toolErrors.length > 0) {
           var hasFoodIntent = result.toolErrors.some(function (e) {
             return e.indexOf('detected_food_intent') !== -1;
@@ -324,6 +336,18 @@
           }
         } else if (result.usedTools && result.usedTools.length > 0) {
           meta = { kind: 'info', text: '已使用工具: ' + result.usedTools.join(', ') };
+        }
+
+        // ⭐ AI 改动了饮食数据（新增/删除/修改）→ 同步刷新 🍽 弹层缓存
+        var mutatedTools = ['log_food', 'delete_food_log', 'update_food_log'];
+        var mutated = result.foodLogged || (
+          Array.isArray(result.usedTools) &&
+          result.usedTools.some(function (t) {
+            return mutatedTools.indexOf(String(t).replace('(failed)', '')) !== -1;
+          })
+        );
+        if (mutated) {
+          refreshFoodModalIfOpen();
         }
 
         var aiMsg = {
@@ -372,14 +396,26 @@
   // ==========================================================================
 
   function fetchTodayFoodLogs() {
-    var url = API_BASE + '/food-logs';
+    var url = API_BASE + '/food-logs';  // 不传 date 默认查今天
     return fetch(url, { method: 'GET' })
       .then(function (res) {
         return res.text().then(function (raw) {
           if (!res.ok) throw new Error('HTTP ' + res.status + ' — ' + raw.slice(0, 200));
-          try { return JSON.parse(raw); }
-          catch (e) { throw new Error('响应不是合法 JSON: ' + raw.slice(0, 200)); }
+          return JSON.parse(raw);
         });
+      });
+  }
+
+  // AI 改动了数据时调用：如果 🍽 弹层正打开就重渲染，关闭时下次打开会自然刷新
+  function refreshFoodModalIfOpen() {
+    if (!foodModalOpen) return;  // 没打开就不浪费请求
+    var body = document.getElementById('foodModalBody');
+    // 不显示"加载中"避免闪烁，悄悄替换
+    fetchTodayFoodLogs()
+      .then(renderFoodLogModal)
+      .catch(function (err) {
+        console.warn('[foodModal] refresh failed:', err);
+        // 失败不弹错，保留原内容
       });
   }
 
@@ -435,6 +471,7 @@
     var modal = document.getElementById('foodModal');
     var body = document.getElementById('foodModalBody');
     modal.hidden = false;
+    foodModalOpen = true;             // 标记打开
     body.innerHTML = '加载中...';
     fetchTodayFoodLogs()
       .then(renderFoodLogModal)
@@ -447,6 +484,7 @@
 
   function closeFoodModal() {
     document.getElementById('foodModal').hidden = true;
+    foodModalOpen = false;            // 标记关闭
   }
 
   // ⭐ 诊断：调 /api/health（长按"清空"按钮调出）
