@@ -319,6 +319,17 @@
   function sendMessage(text, imageDataUrl) {
     if (isWaiting) return;
     if (!text && !imageDataUrl) return;
+    
+    // ⭐ 防重复发送：检查是否刚发送过相同内容
+    var lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === 'user') {
+      var sameText = lastMsg.text === (text || '');
+      var sameImage = lastMsg.image === (imageDataUrl || null);
+      if (sameText && sameImage && Date.now() - lastMsg.ts < 2000) {
+        console.warn('[防重复] 2秒内发送了相同消息，跳过');
+        return;
+      }
+    }
 
     isWaiting = true;
     setInputDisabled(true);
@@ -532,7 +543,12 @@
   // 6. 事件绑定
   // ==========================================================================
 
+  var eventsBound = false;  // ⭐ 防止事件重复绑定
+
   function bindEvents() {
+    if (eventsBound) return;  // 已绑定过就跳过，防止重复
+    eventsBound = true;
+    
     var formEl = document.getElementById('chatForm');
     var inputEl = document.getElementById('messageInput');
     var imageInputEl = document.getElementById('imageInput');
