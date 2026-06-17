@@ -54,6 +54,13 @@
   // 1. 消息持久化（localStorage 作为离线缓存）
   // ==========================================================================
 
+  // ⭐ 核心工具：生成消息的唯一签名（只依赖 role + text + image，不依赖 ts/cloudId）
+  function getMessageSignature(msg) {
+    var textSig = (msg.text || '').replace(/\s+/g, '').slice(0, 200);
+    var imageSig = msg.image ? '_hasimg' : '';
+    return (msg.role || '') + '|' + textSig + imageSig;
+  }
+
   function loadMessagesFromLocal() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
@@ -61,25 +68,29 @@
       var parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
       
-      // ⭐ 启动时去重：清除 localStorage 中因旧版本产生的重复消息
-      var seenCloudIds = new Set();
+      // ⭐ 启动时去重：基于内容签名，彻底清除重复消息
       var seenSignatures = new Set();
+      var seenCloudIds = new Set();
       var unique = [];
+      
       for (var i = 0; i < parsed.length; i++) {
         var m = parsed[i];
-        var sig = (m.role || '') + '|' + (m.ts || 0) + '|' + ((m.text || '').slice(0, 80));
+        var sig = getMessageSignature(m);
         var isDuplicate = false;
+        
         if (m.cloudId && seenCloudIds.has(m.cloudId)) isDuplicate = true;
-        if (!m.cloudId && seenSignatures.has(sig)) isDuplicate = true;
+        if (seenSignatures.has(sig)) isDuplicate = true;
         
         if (isDuplicate) {
           console.warn('[去重] 跳过重复消息:', sig.slice(0, 50));
           continue;
         }
+        
         if (m.cloudId) seenCloudIds.add(m.cloudId);
         seenSignatures.add(sig);
         unique.push(m);
       }
+      
       if (unique.length !== parsed.length) {
         console.log('[去重] 从 ' + parsed.length + ' 条清理为 ' + unique.length + ' 条');
         saveMessagesToLocal(unique);
@@ -93,8 +104,33 @@
 
   function saveMessagesToLocal(msgList) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(msgList));
-    } catch (e) {}
+      // ⭐ 强制去重（最后一道防线）：确保写入 localStorage 的消息永远不重复
+      var seenSigs = new Set();
+      var seenIds = new Set();
+      var deduped = [];
+      
+      for (var i = 0; i < msgList.length; i++) {
+        var m = msgList[i];
+        var sig = getMessageSignature(m);
+        var isDup = false;
+        if (m.cloudId && seenIds.has(m.cloudId)) isDup = true;
+        if (seenSigs.has(sig)) isDup = true;
+        
+        if (!isDup) {
+          if (m.cloudId) seenIds.add(m.cloudId);
+          seenSigs.add(sig);
+          deduped.push(m);
+        }
+      }
+      
+      if (deduped.length !== msgList.length) {
+        console.warn('[save] 检测到重复，从 ' + msgList.length + ' 条去重为 ' + deduped.length + ' 条');
+      }
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(deduped));
+    } catch (e) {
+      console.warn('[save] 写入 localStorage 失败:', e.message);
+    }
   }
 
   // ==========================================================================
@@ -686,44 +722,42 @@
     }
     renderAll();
 
-    // ⭐ 后台异步从云端拉取最新历史 — 完全以云端为准，避免重复
+    // ⭐ 后台异步从云端拉取最新历史 — 用内容签名精确去重
     loadMessagesFromCloud().then(function (cloudMsgs) {
       if (cloudMsgs && cloudMsgs.length > 0) {
-        // ⭐ 关键修复：基于 cloudId 精确去重合并，防止双写导致的重复
-        var cloudMap = {};
+        // 关键：用 getMessageSignature() 统一去重，避免 ts 不一致导致的重复
         var cloudSignatures = new Set();
+        var cloudIds = new Set();
         
-        // 先构建云端消息映射
+        // 1. 构建云端消息的签名和 cloudId 集合
         cloudMsgs.forEach(function (m) {
-          if (m.cloudId) {
-            cloudMap[m.cloudId] = m;
-          }
-          var sig = (m.role || '') + '|' + (m.ts || 0) + '|' + ((m.text || '').slice(0, 80));
-          cloudSignatures.add(sig);
+          if (m.cloudId) cloudIds.add(m.cloudId);
+          cloudSignatures.add(getMessageSignature(m));
         });
         
-        // 合并：云端消息 + 本地未同步的消息
+        // 2. 合并：云端消息 + 本地未同步的消息
         var merged = [];
-        var seenCloudIds = new Set();
+        var seenSigs = new Set();
+        var seenIds = new Set();
         
-        // 先加云端消息
+        // 先加云端消息（权威数据源）
         cloudMsgs.forEach(function (m) {
-          if (m.cloudId) seenCloudIds.add(m.cloudId);
-          merged.push(m);
+          var sig = getMessageSignature(m);
+          if (!seenSigs.has(sig)) {  // 云端消息自身也可能重复
+            if (m.cloudId) seenIds.add(m.cloudId);
+            seenSigs.add(sig);
+            merged.push(m);
+          }
         });
         
-        // 再补充本地有但云端没有的消息（刚发还没同步的）
+        // 再补充本地有但云端没有的消息（刚发还没同步到云端的）
         messages.forEach(function (m) {
-          var hasCloudId = !!m.cloudId;
-          var isInCloud = hasCloudId && seenCloudIds.has(m.cloudId);
-          
-          if (hasCloudId && !isInCloud) {
-            // 有 cloudId 但云端没有 → 本地消息更新更晚，保留本地
-            merged.push(m);
-          } else if (!hasCloudId) {
-            // 没有 cloudId（还没同步）且云端没有相同签名 → 补充
-            var sig = (m.role || '') + '|' + (m.ts || 0) + '|' + ((m.text || '').slice(0, 80));
-            if (!cloudSignatures.has(sig)) {
+          var sig = getMessageSignature(m);
+          // 云端没有相同签名 且 云端没有相同 cloudId → 补充
+          if (!cloudSignatures.has(sig) && !(m.cloudId && cloudIds.has(m.cloudId))) {
+            if (!seenSigs.has(sig)) {
+              if (m.cloudId) seenIds.add(m.cloudId);
+              seenSigs.add(sig);
               merged.push(m);
             }
           }
@@ -732,8 +766,9 @@
         // 按时间排序
         merged.sort(function (a, b) { return a.ts - b.ts; });
         
+        console.log('[同步] 云端 ' + cloudMsgs.length + ' 条，本地补充后 ' + merged.length + ' 条');
         messages = merged;
-        saveMessagesToLocal(messages);
+        saveMessagesToLocal(messages);  // saveMessagesToLocal 内部已自带强制去重
         renderAll();
       }
     });
