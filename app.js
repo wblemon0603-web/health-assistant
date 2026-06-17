@@ -689,10 +689,50 @@
     // ⭐ 后台异步从云端拉取最新历史 — 完全以云端为准，避免重复
     loadMessagesFromCloud().then(function (cloudMsgs) {
       if (cloudMsgs && cloudMsgs.length > 0) {
-        // 云端消息 = 权威数据源，直接覆盖本地
-        // 注意：sendMessage 中 saveMessageToCloud 成功后会写回 cloudId，
-        // 所以下次刷新时云端返回的消息应与本地一致
-        messages = cloudMsgs;
+        // ⭐ 关键修复：基于 cloudId 精确去重合并，防止双写导致的重复
+        var cloudMap = {};
+        var cloudSignatures = new Set();
+        
+        // 先构建云端消息映射
+        cloudMsgs.forEach(function (m) {
+          if (m.cloudId) {
+            cloudMap[m.cloudId] = m;
+          }
+          var sig = (m.role || '') + '|' + (m.ts || 0) + '|' + ((m.text || '').slice(0, 80));
+          cloudSignatures.add(sig);
+        });
+        
+        // 合并：云端消息 + 本地未同步的消息
+        var merged = [];
+        var seenCloudIds = new Set();
+        
+        // 先加云端消息
+        cloudMsgs.forEach(function (m) {
+          if (m.cloudId) seenCloudIds.add(m.cloudId);
+          merged.push(m);
+        });
+        
+        // 再补充本地有但云端没有的消息（刚发还没同步的）
+        messages.forEach(function (m) {
+          var hasCloudId = !!m.cloudId;
+          var isInCloud = hasCloudId && seenCloudIds.has(m.cloudId);
+          
+          if (hasCloudId && !isInCloud) {
+            // 有 cloudId 但云端没有 → 本地消息更新更晚，保留本地
+            merged.push(m);
+          } else if (!hasCloudId) {
+            // 没有 cloudId（还没同步）且云端没有相同签名 → 补充
+            var sig = (m.role || '') + '|' + (m.ts || 0) + '|' + ((m.text || '').slice(0, 80));
+            if (!cloudSignatures.has(sig)) {
+              merged.push(m);
+            }
+          }
+        });
+        
+        // 按时间排序
+        merged.sort(function (a, b) { return a.ts - b.ts; });
+        
+        messages = merged;
         saveMessagesToLocal(messages);
         renderAll();
       }
