@@ -59,8 +59,34 @@
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
       var parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      
+      // ⭐ 启动时去重：清除 localStorage 中因旧版本产生的重复消息
+      var seenCloudIds = new Set();
+      var seenSignatures = new Set();
+      var unique = [];
+      for (var i = 0; i < parsed.length; i++) {
+        var m = parsed[i];
+        var sig = (m.role || '') + '|' + (m.ts || 0) + '|' + ((m.text || '').slice(0, 80));
+        var isDuplicate = false;
+        if (m.cloudId && seenCloudIds.has(m.cloudId)) isDuplicate = true;
+        if (!m.cloudId && seenSignatures.has(sig)) isDuplicate = true;
+        
+        if (isDuplicate) {
+          console.warn('[去重] 跳过重复消息:', sig.slice(0, 50));
+          continue;
+        }
+        if (m.cloudId) seenCloudIds.add(m.cloudId);
+        seenSignatures.add(sig);
+        unique.push(m);
+      }
+      if (unique.length !== parsed.length) {
+        console.log('[去重] 从 ' + parsed.length + ' 条清理为 ' + unique.length + ' 条');
+        saveMessagesToLocal(unique);
+      }
+      return unique;
     } catch (e) {
+      console.warn('[本地] 加载消息失败:', e.message);
       return [];
     }
   }
@@ -120,7 +146,12 @@
         return res.json();
       })
       .then(function (data) {
-        if (data && data.message_id) msg.cloudId = data.message_id;
+        if (data && data.message_id) {
+          msg.cloudId = data.message_id;
+          // ⭐ 关键：拿到 cloudId 后立即写回 localStorage
+          // 这样下次刷新时，本地消息已有 cloudId，可以精确去重
+          saveMessagesToLocal(messages);
+        }
         return msg;
       })
       .catch(function (err) {
@@ -639,42 +670,13 @@
     }
     renderAll();
 
-    // 后台异步从云端拉取最新历史（去重合并，避免重复）
+    // ⭐ 后台异步从云端拉取最新历史 — 完全以云端为准，避免重复
     loadMessagesFromCloud().then(function (cloudMsgs) {
       if (cloudMsgs && cloudMsgs.length > 0) {
-        // ⭐ 去重：云端消息优先，补充本地未同步的消息
-        var merged = [];
-        var seenCloudIds = new Set();
-        var seenLocalSignatures = new Set();
-        
-        // 先加云端消息，记录已见过的 cloudId
-        cloudMsgs.forEach(function (m) {
-          if (m.cloudId) seenCloudIds.add(m.cloudId);
-          // 记录本地签名用于去重（防止云端返回重复）
-          var sig = m.role + '|' + m.ts + '|' + (m.text || '').slice(0, 50);
-          seenLocalSignatures.add(sig);
-          merged.push(m);
-        });
-        
-        // 再补充本地有但云端没有的消息
-        messages.forEach(function (m) {
-          // 有 cloudId 但云端没有 → 补充
-          if (m.cloudId && !seenCloudIds.has(m.cloudId)) {
-            merged.push(m);
-          }
-          // 没有 cloudId（还没同步）且未在云端见过 → 补充
-          if (!m.cloudId) {
-            var sig = m.role + '|' + m.ts + '|' + (m.text || '').slice(0, 50);
-            if (!seenLocalSignatures.has(sig)) {
-              merged.push(m);
-            }
-          }
-        });
-        
-        // 按时间排序
-        merged.sort(function (a, b) { return a.ts - b.ts; });
-        
-        messages = merged;
+        // 云端消息 = 权威数据源，直接覆盖本地
+        // 注意：sendMessage 中 saveMessageToCloud 成功后会写回 cloudId，
+        // 所以下次刷新时云端返回的消息应与本地一致
+        messages = cloudMsgs;
         saveMessagesToLocal(messages);
         renderAll();
       }
