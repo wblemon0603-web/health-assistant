@@ -277,18 +277,19 @@
       wrap.appendChild(meta);
     }
 
-    // ⭐ 长按消息：弹出操作菜单（复制 / 引用回复）
+    // ⭐ 长按消息：弹出操作菜单（复制 / 引用回复）- 屏蔽系统菜单，只展示自定义弹窗
     var pressTimer = null;
-    var longPressed = false;
     var startX = 0, startY = 0;
+    var pressStartTime = 0;
 
     var startPress = function (x, y) {
-      longPressed = false;
       startX = x;
       startY = y;
+      pressStartTime = Date.now();
       pressTimer = setTimeout(function () {
-        longPressed = true;
-        showMessageActionMenu(bubble, msg);
+        // ⭐ 长按时震动反馈（如果支持）
+        if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
+        showMessageActionMenu(msg);
       }, 500);
     };
 
@@ -296,55 +297,90 @@
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     };
 
+    // 手机端：touchstart 启动计时器
     bubble.addEventListener('touchstart', function (e) {
       startPress(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    // ⭐ touchend：如果是快速点击（<500ms），检查是否有文字选择，有的话不做处理，让系统自己处理
+    bubble.addEventListener('touchend', function (e) {
+      var duration = Date.now() - pressStartTime;
+      // 如果长按已经触发菜单，阻止系统后续行为
+      if (duration >= 500) {
+        e.preventDefault();
+      }
+      cancelPress();
     });
-    bubble.addEventListener('touchend', cancelPress);
     bubble.addEventListener('touchmove', function (e) {
       var dx = e.touches[0].clientX - startX;
       var dy = e.touches[0].clientY - startY;
       if (Math.abs(dx) > 10 || Math.abs(dy) > 10) cancelPress();
-    });
-    bubble.addEventListener('mousedown', function (e) {
-      // 桌面端：右键直接触发菜单，左键长按也触发
-      if (e.button === 2) return; // 右键交给 contextmenu
-      startPress(e.clientX, e.clientY);
-    });
-    bubble.addEventListener('mouseup', cancelPress);
-    bubble.addEventListener('mouseleave', cancelPress);
+    }, { passive: true });
+
+    // ⭐ 桌面端：右键直接触发菜单
     bubble.addEventListener('contextmenu', function (e) {
       e.preventDefault();
-      showMessageActionMenu(bubble, msg);
+      e.stopPropagation();
+      showMessageActionMenu(msg);
     });
 
     return wrap;
   }
 
-  // ⭐ 显示消息操作菜单（复制 / 引用回复）
+  // ⭐ 显示消息操作菜单（全屏遮罩 + 居中菜单 - 去掉取消按钮，点击空白关闭）
   var messageActionMenu = null;
-  function showMessageActionMenu(anchorEl, msg) {
+  function showMessageActionMenu(msg) {
     // 移除已有的菜单
     if (messageActionMenu) {
       if (messageActionMenu.parentNode) messageActionMenu.parentNode.removeChild(messageActionMenu);
       messageActionMenu = null;
     }
 
+    // ⭐ 全屏透明遮罩（点击空白处即关闭）
     var menu = document.createElement('div');
     menu.className = 'msg-action-menu';
 
-    // 复制（纯文本，优先用系统 Clipboard API）
+    // 点击遮罩（空白区域）关闭菜单
+    menu.addEventListener('click', function (e) {
+      if (e.target === menu) closeMessageActionMenu();
+    });
+
+    // 阻止冒泡：点击菜单项时不触发遮罩的 click
+    // （CSS 中 panel 是 menu 的子元素，点击 panel 时 e.target 是 btn 而非 menu）
+
+    // 居中的菜单项容器
+    var panel = document.createElement('div');
+    panel.className = 'msg-action-menu__panel';
+    // 阻止冒泡到遮罩
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    // ⭐ 复制按钮：优先复制用户选中的部分文字，没有选中则复制全文
     var copyBtn = document.createElement('button');
     copyBtn.className = 'msg-action-menu__btn';
-    copyBtn.textContent = '📋 复制';
+    copyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>复制</span>';
     copyBtn.addEventListener('click', function () {
-      var textToCopy = msg.text || (msg.image ? '[图片]' : '');
+      // 1. 先检查是否有用户选中的文本
+      var selectedText = '';
+      if (window.getSelection) {
+        var sel = window.getSelection();
+        if (sel && sel.toString && sel.toString().trim().length > 0) {
+          selectedText = sel.toString();
+        }
+      }
+
+      // 2. 有选中文本则复制选中内容，没有则复制整条消息
+      var textToCopy = selectedText || msg.text || (msg.image ? '[图片]' : '');
       var done = function () { closeMessageActionMenu(); };
+
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(textToCopy).then(done).catch(function () {
-          // 降级：用 execCommand
+          // 降级方案：用 textarea + execCommand
           var ta = document.createElement('textarea');
           ta.value = textToCopy;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
           document.body.appendChild(ta);
+          ta.focus();
           ta.select();
           try { document.execCommand('copy'); } catch (e) {}
           document.body.removeChild(ta);
@@ -353,7 +389,10 @@
       } else {
         var ta = document.createElement('textarea');
         ta.value = textToCopy;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
         document.body.appendChild(ta);
+        ta.focus();
         ta.select();
         try { document.execCommand('copy'); } catch (e) {}
         document.body.removeChild(ta);
@@ -361,10 +400,10 @@
       }
     });
 
-    // 引用回复
+    // ⭐ 引用回复
     var quoteBtn = document.createElement('button');
     quoteBtn.className = 'msg-action-menu__btn';
-    quoteBtn.textContent = '↩️ 引用回复';
+    quoteBtn.innerHTML = '<span class="msg-action-menu__btn-icon">↩️</span><span>引用回复</span>';
     quoteBtn.addEventListener('click', function () {
       quotedMsg = msg;
       renderQuoteBar();
@@ -372,33 +411,11 @@
       document.getElementById('messageInput').focus();
     });
 
-    // 取消
-    var cancelBtn = document.createElement('button');
-    cancelBtn.className = 'msg-action-menu__btn msg-action-menu__btn--cancel';
-    cancelBtn.textContent = '取消';
-    cancelBtn.addEventListener('click', closeMessageActionMenu);
-
-    menu.appendChild(copyBtn);
-    menu.appendChild(quoteBtn);
-    menu.appendChild(cancelBtn);
+    panel.appendChild(copyBtn);
+    panel.appendChild(quoteBtn);
+    menu.appendChild(panel);
     document.body.appendChild(menu);
 
-    // 定位：显示在气泡下方（空间不够则显示在上方）
-    var rect = anchorEl.getBoundingClientRect();
-    var menuRect = menu.getBoundingClientRect();
-    var menuWidth = 180;
-    var top = rect.bottom + 6;
-    var left = rect.left + (rect.width / 2) - (menuWidth / 2);
-
-    // 防止超出屏幕
-    left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
-    if (top + menuRect.height > window.innerHeight - 8) {
-      top = rect.top - menuRect.height - 6; // 改在上方
-    }
-    if (top < 8) top = 8;
-
-    menu.style.left = left + 'px';
-    menu.style.top = top + 'px';
     messageActionMenu = menu;
   }
 
@@ -407,6 +424,13 @@
       messageActionMenu.parentNode.removeChild(messageActionMenu);
     }
     messageActionMenu = null;
+    // ⭐ 关闭菜单时清除文本选择，避免选中状态残留
+    if (window.getSelection) {
+      try {
+        var sel = window.getSelection();
+        if (sel && sel.removeAllRanges) sel.removeAllRanges();
+      } catch (e) {}
+    }
   }
 
   // ⭐ 渲染引用栏（输入框上方的引用提示条）
@@ -918,6 +942,11 @@
   // ==========================================================================
 
   function init() {
+    // ⭐ ESC 键关闭操作菜单
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && messageActionMenu) closeMessageActionMenu();
+    });
+
     bindEvents();
 
     // 显示当前环境标识
