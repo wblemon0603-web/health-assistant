@@ -1036,9 +1036,9 @@
       clearCacheBtn.addEventListener('click', function () {
         if (!confirm('确定清除本地缓存？（消息记录会被删除，刷新后重新从云端拉取）')) return;
         // 1. 清除 localStorage 中的消息记录
-        try { localStorage.removeItem('health-assistant-messages'); } catch (e) {}
+        try { localStorage.removeItem('health_assistant_messages_v1'); } catch (e) {}
         // 2. 清除 session_id
-        try { localStorage.removeItem('health-assistant-session'); } catch (e) {}
+        try { localStorage.removeItem('health_assistant_session_id'); } catch (e) {}
         // 3. 清除 Service Worker 缓存
         if ('caches' in window) {
           caches.keys().then(function (names) {

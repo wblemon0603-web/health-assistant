@@ -778,11 +778,13 @@ body {
 }
 
 .msg-action-menu__btn:hover {
-  background: #f2f2f7;
+  background: #8e8e93;
+  color: #ffffff;
 }
 
 .msg-action-menu__btn:active {
-  background: #e5e5ea;
+  background: #636366;
+  color: #ffffff;
 }
 
 .msg-action-menu__btn-icon {
