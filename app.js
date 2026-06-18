@@ -277,7 +277,7 @@
       wrap.appendChild(meta);
     }
 
-    // ⭐ 长按消息：弹出操作菜单（复制 / 引用回复）- 屏蔽系统菜单，只展示自定义弹窗
+    // ⭐ 长按消息：弹出操作菜单 - 屏蔽系统菜单，只展示自定义弹窗
     var pressTimer = null;
     var startX = 0, startY = 0;
     var pressStartTime = 0;
@@ -287,9 +287,8 @@
       startY = y;
       pressStartTime = Date.now();
       pressTimer = setTimeout(function () {
-        // ⭐ 长按时震动反馈（如果支持）
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
-        showMessageActionMenu(msg);
+        showMessageActionMenu(bubble, msg);
       }, 500);
     };
 
@@ -297,18 +296,13 @@
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     };
 
-    // 手机端：touchstart 启动计时器
     bubble.addEventListener('touchstart', function (e) {
       startPress(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
 
-    // ⭐ touchend：如果是快速点击（<500ms），检查是否有文字选择，有的话不做处理，让系统自己处理
     bubble.addEventListener('touchend', function (e) {
       var duration = Date.now() - pressStartTime;
-      // 如果长按已经触发菜单，阻止系统后续行为
-      if (duration >= 500) {
-        e.preventDefault();
-      }
+      if (duration >= 500) e.preventDefault();
       cancelPress();
     });
     bubble.addEventListener('touchmove', function (e) {
@@ -321,86 +315,43 @@
     bubble.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      showMessageActionMenu(msg);
+      showMessageActionMenu(bubble, msg);
     });
 
     return wrap;
   }
 
-  // ⭐ 显示消息操作菜单（全屏遮罩 + 居中菜单 - 去掉取消按钮，点击空白关闭）
+  // ⭐ 显示消息操作菜单（白色圆角卡片，显示在消息附近 - 全部复制/部分复制/引用回复）
   var messageActionMenu = null;
-  function showMessageActionMenu(msg) {
-    // 移除已有的菜单
-    if (messageActionMenu) {
-      if (messageActionMenu.parentNode) messageActionMenu.parentNode.removeChild(messageActionMenu);
-      messageActionMenu = null;
-    }
+  var selectModeTip = null;
+  var selectModeBubble = null;
 
-    // ⭐ 全屏透明遮罩（点击空白处即关闭）
+  function showMessageActionMenu(bubbleEl, msg) {
+    closeMessageActionMenu(); // 先关闭已有菜单
+
     var menu = document.createElement('div');
     menu.className = 'msg-action-menu';
 
-    // 点击遮罩（空白区域）关闭菜单
-    menu.addEventListener('click', function (e) {
-      if (e.target === menu) closeMessageActionMenu();
+    // ⭐ 1. 全部复制
+    var copyAllBtn = document.createElement('button');
+    copyAllBtn.className = 'msg-action-menu__btn';
+    copyAllBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>全部复制</span>';
+    copyAllBtn.addEventListener('click', function () {
+      var textToCopy = msg.text || (msg.image ? '[图片]' : '');
+      copyTextToClipboard(textToCopy);
+      closeMessageActionMenu();
     });
 
-    // 阻止冒泡：点击菜单项时不触发遮罩的 click
-    // （CSS 中 panel 是 menu 的子元素，点击 panel 时 e.target 是 btn 而非 menu）
-
-    // 居中的菜单项容器
-    var panel = document.createElement('div');
-    panel.className = 'msg-action-menu__panel';
-    // 阻止冒泡到遮罩
-    panel.addEventListener('click', function (e) { e.stopPropagation(); });
-
-    // ⭐ 复制按钮：优先复制用户选中的部分文字，没有选中则复制全文
-    var copyBtn = document.createElement('button');
-    copyBtn.className = 'msg-action-menu__btn';
-    copyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>复制</span>';
-    copyBtn.addEventListener('click', function () {
-      // 1. 先检查是否有用户选中的文本
-      var selectedText = '';
-      if (window.getSelection) {
-        var sel = window.getSelection();
-        if (sel && sel.toString && sel.toString().trim().length > 0) {
-          selectedText = sel.toString();
-        }
-      }
-
-      // 2. 有选中文本则复制选中内容，没有则复制整条消息
-      var textToCopy = selectedText || msg.text || (msg.image ? '[图片]' : '');
-      var done = function () { closeMessageActionMenu(); };
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(textToCopy).then(done).catch(function () {
-          // 降级方案：用 textarea + execCommand
-          var ta = document.createElement('textarea');
-          ta.value = textToCopy;
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
-          try { document.execCommand('copy'); } catch (e) {}
-          document.body.removeChild(ta);
-          done();
-        });
-      } else {
-        var ta = document.createElement('textarea');
-        ta.value = textToCopy;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        try { document.execCommand('copy'); } catch (e) {}
-        document.body.removeChild(ta);
-        done();
-      }
+    // ⭐ 2. 部分复制：进入选择模式
+    var partialCopyBtn = document.createElement('button');
+    partialCopyBtn.className = 'msg-action-menu__btn';
+    partialCopyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">✂️</span><span>部分复制</span>';
+    partialCopyBtn.addEventListener('click', function () {
+      enterSelectMode(bubbleEl, msg);
+      closeMessageActionMenu();
     });
 
-    // ⭐ 引用回复
+    // ⭐ 3. 引用回复
     var quoteBtn = document.createElement('button');
     quoteBtn.className = 'msg-action-menu__btn';
     quoteBtn.innerHTML = '<span class="msg-action-menu__btn-icon">↩️</span><span>引用回复</span>';
@@ -411,12 +362,122 @@
       document.getElementById('messageInput').focus();
     });
 
-    panel.appendChild(copyBtn);
-    panel.appendChild(quoteBtn);
-    menu.appendChild(panel);
+    menu.appendChild(copyAllBtn);
+    menu.appendChild(partialCopyBtn);
+    menu.appendChild(quoteBtn);
     document.body.appendChild(menu);
 
+    // ⭐ 定位：显示在气泡上方（空间不够则在下方）
+    var rect = bubbleEl.getBoundingClientRect();
+    var menuRect = menu.getBoundingClientRect();
+    var menuWidth = menuRect.width;
+    var menuHeight = menuRect.height;
+    var top, left;
+
+    // 水平方向：气泡水平中心对齐
+    left = rect.left + (rect.width / 2) - (menuWidth / 2);
+    // 边界修正：不要超出屏幕
+    left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
+
+    // 垂直方向：优先在气泡上方（如果空间足够）
+    top = rect.top - menuHeight - 8;
+    if (top < 12) {
+      // 空间不够，改在下方
+      top = rect.bottom + 8;
+      // 如果下方也不够，放在屏幕中间
+      if (top + menuHeight > window.innerHeight - 12) {
+        top = (window.innerHeight - menuHeight) / 2;
+      }
+    }
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
     messageActionMenu = menu;
+  }
+
+  // ⭐ 进入部分复制模式：气泡高亮，用户可以用手指选择文字
+  function enterSelectMode(bubbleEl, msg) {
+    // 1. 高亮当前气泡
+    selectModeBubble = bubbleEl;
+    bubbleEl.classList.add('is-select-mode');
+    // 确保气泡内的文字可以被选中
+    bubbleEl.style.webkitUserSelect = 'text';
+    bubbleEl.style.userSelect = 'text';
+    bubbleEl.style.webkitTouchCallout = 'default'; // 临时允许系统的选择菜单
+
+    // 2. 显示顶部提示条
+    selectModeTip = document.createElement('div');
+    selectModeTip.className = 'select-mode-tip';
+    selectModeTip.innerHTML = '👆 滑动手指选择要复制的文字' +
+      '<button class="done-btn" id="selectModeDoneBtn">完成</button>';
+    document.body.appendChild(selectModeTip);
+
+    // 3. "完成"按钮：复制当前选中的文字
+    var doneBtn = document.getElementById('selectModeDoneBtn');
+    if (doneBtn) {
+      doneBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var selectedText = '';
+        if (window.getSelection) {
+          var sel = window.getSelection();
+          if (sel && sel.toString) selectedText = sel.toString();
+        }
+        if (selectedText && selectedText.trim()) {
+          copyTextToClipboard(selectedText);
+        } else {
+          alert('请先滑动手指选择要复制的文字');
+          return;
+        }
+        exitSelectMode();
+      });
+    }
+  }
+
+  // ⭐ 退出部分复制模式
+  function exitSelectMode() {
+    if (selectModeBubble) {
+      selectModeBubble.classList.remove('is-select-mode');
+      selectModeBubble.style.webkitUserSelect = '';
+      selectModeBubble.style.userSelect = '';
+      selectModeBubble.style.webkitTouchCallout = '';
+      selectModeBubble = null;
+    }
+    if (selectModeTip && selectModeTip.parentNode) {
+      selectModeTip.parentNode.removeChild(selectModeTip);
+      selectModeTip = null;
+    }
+    // 清除文本选择
+    if (window.getSelection) {
+      try {
+        var sel = window.getSelection();
+        if (sel && sel.removeAllRanges) sel.removeAllRanges();
+      } catch (e) {}
+    }
+  }
+
+  // ⭐ 统一的复制函数（自动降级）
+  function copyTextToClipboard(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(function () {
+        fallbackCopy(text);
+      });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
   }
 
   function closeMessageActionMenu() {
@@ -942,10 +1003,58 @@
   // ==========================================================================
 
   function init() {
-    // ⭐ ESC 键关闭操作菜单
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && messageActionMenu) closeMessageActionMenu();
+    // ⭐ 全局：点击菜单外的区域关闭操作菜单
+    document.addEventListener('click', function (e) {
+      if (messageActionMenu && !messageActionMenu.contains(e.target)) {
+        closeMessageActionMenu();
+      }
+      // 点击非选择模式的区域，退出部分复制模式
+      if (selectModeTip && selectModeBubble) {
+        var tipClicked = selectModeTip.contains(e.target);
+        var bubbleClicked = selectModeBubble.contains(e.target);
+        if (!tipClicked && !bubbleClicked) {
+          // 点击非气泡区域时，如果用户已经选择了文字，不自动退出，让用户点击"完成"
+          var sel = window.getSelection();
+          if (!sel || !sel.toString() || !sel.toString().trim()) {
+            exitSelectMode();
+          }
+        }
+      }
     });
+
+    // ⭐ ESC 键关闭菜单和选择模式
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        if (messageActionMenu) closeMessageActionMenu();
+        if (selectModeTip) exitSelectMode();
+      }
+    });
+
+    // ⭐ 一键清除缓存按钮
+    var clearCacheBtn = document.getElementById('clearCacheBtn');
+    if (clearCacheBtn) {
+      clearCacheBtn.addEventListener('click', function () {
+        if (!confirm('确定清除本地缓存？（消息记录会被删除，刷新后重新从云端拉取）')) return;
+        // 1. 清除 localStorage 中的消息记录
+        try { localStorage.removeItem('health-assistant-messages'); } catch (e) {}
+        // 2. 清除 session_id
+        try { localStorage.removeItem('health-assistant-session'); } catch (e) {}
+        // 3. 清除 Service Worker 缓存
+        if ('caches' in window) {
+          caches.keys().then(function (names) {
+            names.forEach(function (name) {
+              if (name.indexOf('health-assistant') !== -1) {
+                caches.delete(name);
+              }
+            });
+          });
+        }
+        // 4. 重新加载
+        setTimeout(function () {
+          window.location.reload();
+        }, 300);
+      });
+    }
 
     bindEvents();
 

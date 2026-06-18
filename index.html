@@ -26,10 +26,12 @@
   <!-- 顶部导航栏（类似 iOS 导航栏） -->
   <header class="app-header">
     <div class="app-header__inner">
-      <!-- ⭐ 新增：左侧按钮 - 今日饮食 -->
+      <!-- ⭐ 左侧按钮 - 今日饮食 -->
       <button id="foodLogBtn" class="app-header__action app-header__action--left" type="button" title="今日饮食">🍽</button>
       <h1 class="app-header__title">健康助手</h1>
       <span id="envBadge" class="env-badge" title="当前后端环境">生产</span>
+      <!-- ⭐ 新增：一键清除缓存按钮（红色主题） -->
+      <button id="clearCacheBtn" class="app-header__action--clear-cache" type="button" title="清除本地缓存">🗑 清缓存</button>
       <button id="clearBtn" class="app-header__action" type="button" title="清空消息">清空</button>
     </div>
   </header>

@@ -745,62 +745,120 @@ body {
 
 .quote-bar__close:hover { background: rgba(127, 127, 127, 0.15); }
 
-/* ---- 3. 长按消息操作菜单（全屏遮罩 + 居中菜单） ---- */
+/* ---- 3. 长按消息操作菜单（白色圆角卡片，显示在消息附近） ---- */
 .msg-action-menu {
   position: fixed;
-  inset: 0;
   z-index: 10000;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: menu-in 0.15s ease-out;
+  min-width: 180px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 2px 12px rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  animation: menu-pop-in 0.16s cubic-bezier(0.3, 0, 0.3, 1.2);
 }
 
-@keyframes menu-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.msg-action-menu__panel {
-  width: 200px;
-  background: var(--color-surface);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
-  padding: 4px;
-  animation: menu-panel-in 0.18s ease-out;
-}
-
-@keyframes menu-panel-in {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
+@keyframes menu-pop-in {
+  from { opacity: 0; transform: scale(0.85) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .msg-action-menu__btn {
   display: flex;
   align-items: center;
   width: 100%;
-  text-align: left;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 15px;
-  color: var(--color-text);
+  color: #1f1f1f;
   cursor: pointer;
-  gap: 10px;
+  gap: 12px;
+  transition: background 0.15s;
 }
 
 .msg-action-menu__btn:hover {
-  background: rgba(127, 127, 127, 0.15);
+  background: #f2f2f7;
 }
 
 .msg-action-menu__btn:active {
-  background: rgba(127, 127, 127, 0.25);
+  background: #e5e5ea;
 }
 
 .msg-action-menu__btn-icon {
-  font-size: 18px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+}
+
+/* ---- 3.1 部分复制选择模式：高亮选中文字 ---- */
+.msg__bubble.is-select-mode {
+  outline: 2px solid #007aff;
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.msg__bubble.is-select-mode .msg__content {
+  cursor: text;
+}
+
+/* 部分复制模式的提示条 */
+.select-mode-tip {
+  position: fixed;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffffff;
+  padding: 10px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  z-index: 10001;
+  animation: tip-in 0.2s ease-out;
+}
+
+@keyframes tip-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.select-mode-tip .done-btn {
+  background: #007aff;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  margin-left: 10px;
+  cursor: pointer;
+}
+
+/* ---- 3.2 顶部：一键清除缓存按钮 ---- */
+.app-header__action--clear-cache {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 8px;
+  gap: 4px;
+}
+
+.app-header__action--clear-cache:hover {
+  background: rgba(255, 59, 48, 0.2);
+}
+
+.app-header__action--clear-cache:active {
+  background: rgba(255, 59, 48, 0.3);
+  transform: scale(0.96);
 }
 
 /* ---- 4. 图片放大查看器 ---- */
