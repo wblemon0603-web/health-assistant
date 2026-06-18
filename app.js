@@ -277,16 +277,15 @@
       wrap.appendChild(meta);
     }
 
-    // ⭐ 长按消息：弹出操作菜单 - 屏蔽系统菜单，只展示自定义弹窗
+    // ⭐ 长按消息：弹出操作菜单 - 双重阻止 iOS 系统"拷贝/查找/翻译"菜单
     var pressTimer = null;
     var startX = 0, startY = 0;
-    var pressStartTime = 0;
+    var longPressed = false;
 
-    var startPress = function (x, y) {
-      startX = x;
-      startY = y;
-      pressStartTime = Date.now();
+    var startPress = function () {
+      longPressed = false;
       pressTimer = setTimeout(function () {
+        longPressed = true;
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
         showMessageActionMenu(bubble, msg);
       }, 500);
@@ -296,20 +295,27 @@
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     };
 
+    // ⭐ 关键：touchstart 不使用 passive，确保长按后可以 preventDefault 阻止系统菜单
     bubble.addEventListener('touchstart', function (e) {
-      startPress(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      startPress();
+    });
 
+    // ⭐ 长按触发后：touchend + touchcancel 都 preventDefault 阻止系统弹出菜单
     bubble.addEventListener('touchend', function (e) {
-      var duration = Date.now() - pressStartTime;
-      if (duration >= 500) e.preventDefault();
+      if (longPressed) e.preventDefault();
+      cancelPress();
+    });
+    bubble.addEventListener('touchcancel', function (e) {
+      if (longPressed) e.preventDefault();
       cancelPress();
     });
     bubble.addEventListener('touchmove', function (e) {
       var dx = e.touches[0].clientX - startX;
       var dy = e.touches[0].clientY - startY;
       if (Math.abs(dx) > 10 || Math.abs(dy) > 10) cancelPress();
-    }, { passive: true });
+    });
 
     // ⭐ 桌面端：右键直接触发菜单
     bubble.addEventListener('contextmenu', function (e) {
@@ -323,8 +329,7 @@
 
   // ⭐ 显示消息操作菜单（白色圆角卡片，显示在消息附近 - 全部复制/部分复制/引用回复）
   var messageActionMenu = null;
-  var selectModeTip = null;
-  var selectModeBubble = null;
+  var partialCopyOverlay = null;
 
   function showMessageActionMenu(bubbleEl, msg) {
     closeMessageActionMenu(); // 先关闭已有菜单
@@ -342,13 +347,13 @@
       closeMessageActionMenu();
     });
 
-    // ⭐ 2. 部分复制：进入选择模式
+    // ⭐ 2. 部分复制：弹出文本选择弹层（用户在弹层中自由选择文字）
     var partialCopyBtn = document.createElement('button');
     partialCopyBtn.className = 'msg-action-menu__btn';
     partialCopyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">✂️</span><span>部分复制</span>';
     partialCopyBtn.addEventListener('click', function () {
-      enterSelectMode(bubbleEl, msg);
       closeMessageActionMenu();
+      openPartialCopyOverlay(msg);
     });
 
     // ⭐ 3. 引用回复
@@ -395,57 +400,85 @@
     messageActionMenu = menu;
   }
 
-  // ⭐ 进入部分复制模式：气泡高亮，用户可以用手指选择文字
-  function enterSelectMode(bubbleEl, msg) {
-    // 1. 高亮当前气泡
-    selectModeBubble = bubbleEl;
-    bubbleEl.classList.add('is-select-mode');
-    // 确保气泡内的文字可以被选中
-    bubbleEl.style.webkitUserSelect = 'text';
-    bubbleEl.style.userSelect = 'text';
-    bubbleEl.style.webkitTouchCallout = 'default'; // 临时允许系统的选择菜单
+  // ⭐ 部分复制：弹层模式（弹出文本区域，用户自由选择文字后点击复制）
+  function openPartialCopyOverlay(msg) {
+    closePartialCopyOverlay();
 
-    // 2. 显示顶部提示条
-    selectModeTip = document.createElement('div');
-    selectModeTip.className = 'select-mode-tip';
-    selectModeTip.innerHTML = '👆 滑动手指选择要复制的文字' +
-      '<button class="done-btn" id="selectModeDoneBtn">完成</button>';
-    document.body.appendChild(selectModeTip);
+    // 1. 半透明遮罩层
+    var overlay = document.createElement('div');
+    overlay.className = 'partial-copy-overlay';
+    overlay.addEventListener('click', function (e) {
+      // 点击遮罩空白处关闭
+      if (e.target === overlay) closePartialCopyOverlay();
+    });
 
-    // 3. "完成"按钮：复制当前选中的文字
-    var doneBtn = document.getElementById('selectModeDoneBtn');
-    if (doneBtn) {
-      doneBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var selectedText = '';
-        if (window.getSelection) {
-          var sel = window.getSelection();
-          if (sel && sel.toString) selectedText = sel.toString();
-        }
-        if (selectedText && selectedText.trim()) {
-          copyTextToClipboard(selectedText);
-        } else {
-          alert('请先滑动手指选择要复制的文字');
-          return;
-        }
-        exitSelectMode();
-      });
-    }
+    // 2. 弹层容器
+    var panel = document.createElement('div');
+    panel.className = 'partial-copy-panel';
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    // 3. 顶部标题栏
+    var header = document.createElement('div');
+    header.className = 'partial-copy-panel__header';
+    header.innerHTML = '<span>选择要复制的文字</span>';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'partial-copy-panel__close';
+    closeBtn.innerHTML = '✕';
+    closeBtn.addEventListener('click', closePartialCopyOverlay);
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    // 4. 文本内容区（用户在这里自由选择文字）
+    var content = document.createElement('div');
+    content.className = 'partial-copy-panel__content';
+    content.textContent = msg.text || '（无文本内容）';
+    panel.appendChild(content);
+
+    // 5. 底部按钮区
+    var footer = document.createElement('div');
+    footer.className = 'partial-copy-panel__footer';
+
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'partial-copy-panel__btn primary';
+    copyBtn.textContent = '📋 复制选中内容';
+    copyBtn.addEventListener('click', function () {
+      var selected = '';
+      if (window.getSelection) {
+        var sel = window.getSelection();
+        if (sel && sel.toString) selected = sel.toString();
+      }
+      if (selected && selected.trim()) {
+        copyTextToClipboard(selected);
+        closePartialCopyOverlay();
+      } else {
+        copyBtn.textContent = '✎ 请先滑动选择文字';
+        setTimeout(function () { copyBtn.textContent = '📋 复制选中内容'; }, 1500);
+      }
+    });
+
+    var copyAllBtn = document.createElement('button');
+    copyAllBtn.className = 'partial-copy-panel__btn secondary';
+    copyAllBtn.textContent = '复制全部';
+    copyAllBtn.addEventListener('click', function () {
+      copyTextToClipboard(msg.text || '');
+      closePartialCopyOverlay();
+    });
+
+    footer.appendChild(copyAllBtn);
+    footer.appendChild(copyBtn);
+    panel.appendChild(footer);
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    partialCopyOverlay = overlay;
   }
 
-  // ⭐ 退出部分复制模式
-  function exitSelectMode() {
-    if (selectModeBubble) {
-      selectModeBubble.classList.remove('is-select-mode');
-      selectModeBubble.style.webkitUserSelect = '';
-      selectModeBubble.style.userSelect = '';
-      selectModeBubble.style.webkitTouchCallout = '';
-      selectModeBubble = null;
+  function closePartialCopyOverlay() {
+    if (partialCopyOverlay && partialCopyOverlay.parentNode) {
+      partialCopyOverlay.parentNode.removeChild(partialCopyOverlay);
     }
-    if (selectModeTip && selectModeTip.parentNode) {
-      selectModeTip.parentNode.removeChild(selectModeTip);
-      selectModeTip = null;
-    }
+    partialCopyOverlay = null;
     // 清除文本选择
     if (window.getSelection) {
       try {
@@ -1008,25 +1041,17 @@
       if (messageActionMenu && !messageActionMenu.contains(e.target)) {
         closeMessageActionMenu();
       }
-      // 点击非选择模式的区域，退出部分复制模式
-      if (selectModeTip && selectModeBubble) {
-        var tipClicked = selectModeTip.contains(e.target);
-        var bubbleClicked = selectModeBubble.contains(e.target);
-        if (!tipClicked && !bubbleClicked) {
-          // 点击非气泡区域时，如果用户已经选择了文字，不自动退出，让用户点击"完成"
-          var sel = window.getSelection();
-          if (!sel || !sel.toString() || !sel.toString().trim()) {
-            exitSelectMode();
-          }
-        }
+      // 点击部分复制弹层外的区域，关闭弹层（弹层本身也有 self-close）
+      if (partialCopyOverlay && !partialCopyOverlay.contains(e.target)) {
+        closePartialCopyOverlay();
       }
     });
 
-    // ⭐ ESC 键关闭菜单和选择模式
+    // ⭐ ESC 键关闭操作菜单和部分复制弹层
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
         if (messageActionMenu) closeMessageActionMenu();
-        if (selectModeTip) exitSelectMode();
+        if (partialCopyOverlay) closePartialCopyOverlay();
       }
     });
 

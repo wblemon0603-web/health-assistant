@@ -196,11 +196,12 @@ body {
   animation: bubble-in 0.2s ease-out;
   font-size: 15px;
   line-height: 1.45;
-  /* ⭐ 禁用系统长按弹出的复制菜单（iOS Safari） */
+  /* ⭐ 完全禁止文本选择，屏蔽 iOS 系统长按的"拷贝/查找/翻译"菜单 */
   -webkit-touch-callout: none;
-  /* ⭐ 允许用户选择气泡内的文本（手指滑动可选择部分文字） */
-  -webkit-user-select: text;
-  user-select: text;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 
 .msg--user .msg__bubble {
@@ -795,46 +796,125 @@ body {
   width: 24px;
 }
 
-/* ---- 3.1 部分复制选择模式：高亮选中文字 ---- */
-.msg__bubble.is-select-mode {
-  outline: 2px solid #007aff;
-  outline-offset: 2px;
-  border-radius: 12px;
-}
-
-.msg__bubble.is-select-mode .msg__content {
-  cursor: text;
-}
-
-/* 部分复制模式的提示条 */
-.select-mode-tip {
+/* ---- 3.1 部分复制弹层（用户在此弹层中自由选择文字并复制） ---- */
+.partial-copy-overlay {
   position: fixed;
-  top: 50px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.75);
-  color: #ffffff;
-  padding: 10px 16px;
-  border-radius: 20px;
-  font-size: 13px;
+  inset: 0;
   z-index: 10001;
-  animation: tip-in 0.2s ease-out;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: overlay-in 0.18s ease-out;
 }
 
-@keyframes tip-in {
-  from { opacity: 0; transform: translate(-50%, -10px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.select-mode-tip .done-btn {
-  background: #007aff;
-  color: #fff;
+.partial-copy-panel {
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: panel-in 0.22s cubic-bezier(0.2, 0, 0.2, 1.2);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: scale(0.92) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.partial-copy-panel__header {
+  padding: 14px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f1f1f;
+  border-bottom: 1px solid #e8e8ed;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.partial-copy-panel__close {
+  background: transparent;
   border: none;
-  padding: 6px 14px;
-  border-radius: 14px;
-  font-size: 13px;
-  margin-left: 10px;
+  font-size: 18px;
+  color: #8e8e93;
   cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.partial-copy-panel__close:hover {
+  background: #f2f2f7;
+}
+
+.partial-copy-panel__content {
+  flex: 1;
+  padding: 18px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #1f1f1f;
+  overflow-y: auto;
+  /* ⭐ 关键：允许用户在弹层中自由选择文字（系统允许显示"拷贝"菜单） */
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.partial-copy-panel__footer {
+  padding: 14px 18px;
+  border-top: 1px solid #e8e8ed;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.partial-copy-panel__btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.partial-copy-panel__btn.primary {
+  background: #007aff;
+  color: #ffffff;
+}
+
+.partial-copy-panel__btn.primary:hover {
+  background: #0066d6;
+}
+
+.partial-copy-panel__btn.primary:active {
+  background: #0052a8;
+}
+
+.partial-copy-panel__btn.secondary {
+  background: #f2f2f7;
+  color: #1f1f1f;
+}
+
+.partial-copy-panel__btn.secondary:hover {
+  background: #e5e5ea;
 }
 
 /* ---- 3.2 顶部：一键清除缓存按钮 ---- */
