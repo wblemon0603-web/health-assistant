@@ -277,7 +277,7 @@
       wrap.appendChild(meta);
     }
 
-    // ⭐ 长按消息：弹出操作菜单 - 双重阻止 iOS 系统"拷贝/查找/翻译"菜单
+    // ⭐ 微信风格：长按消息 → 气泡高亮 + 允许文本选择 + 弹出操作菜单
     var pressTimer = null;
     var startX = 0, startY = 0;
     var longPressed = false;
@@ -286,7 +286,9 @@
       longPressed = false;
       pressTimer = setTimeout(function () {
         longPressed = true;
+        // ⭐ 长按触发：震动反馈 + 气泡高亮 + 允许文本选择
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
+        bubble.classList.add('is-selected');
         showMessageActionMenu(bubble, msg);
       }, 500);
     };
@@ -295,14 +297,12 @@
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     };
 
-    // ⭐ 关键：touchstart 不使用 passive，确保长按后可以 preventDefault 阻止系统菜单
     bubble.addEventListener('touchstart', function (e) {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       startPress();
     });
 
-    // ⭐ 长按触发后：touchend + touchcancel 都 preventDefault 阻止系统弹出菜单
     bubble.addEventListener('touchend', function (e) {
       if (longPressed) e.preventDefault();
       cancelPress();
@@ -321,42 +321,47 @@
     bubble.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
+      bubble.classList.add('is-selected');
       showMessageActionMenu(bubble, msg);
     });
 
     return wrap;
   }
 
-  // ⭐ 显示消息操作菜单（白色圆角卡片，显示在消息附近 - 全部复制/部分复制/引用回复）
+  // ⭐ 微信风格：显示消息操作菜单（白色圆角卡片 - 复制/引用回复）
+  //   长按后气泡高亮（is-selected），用户可拖动光标选择文字，点击"复制"复制选中文字
   var messageActionMenu = null;
-  var partialCopyOverlay = null;
+  var selectedBubble = null; // 当前被选中（高亮）的气泡 DOM
 
   function showMessageActionMenu(bubbleEl, msg) {
-    closeMessageActionMenu(); // 先关闭已有菜单
+    closeMessageActionMenu();
+    selectedBubble = bubbleEl;
 
     var menu = document.createElement('div');
     menu.className = 'msg-action-menu';
 
-    // ⭐ 1. 全部复制
-    var copyAllBtn = document.createElement('button');
-    copyAllBtn.className = 'msg-action-menu__btn';
-    copyAllBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>全部复制</span>';
-    copyAllBtn.addEventListener('click', function () {
-      var textToCopy = msg.text || (msg.image ? '[图片]' : '');
+    // ⭐ 1. 复制：优先复制用户选中的文字，没选中则复制整条消息
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-action-menu__btn';
+    copyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>复制</span>';
+    copyBtn.addEventListener('click', function () {
+      var textToCopy = '';
+      // 优先取用户选中的文字（window.getSelection 获取页面上被高亮的文本）
+      if (window.getSelection) {
+        var sel = window.getSelection();
+        if (sel && sel.toString && sel.toString().trim()) {
+          textToCopy = sel.toString();
+        }
+      }
+      // 没有选中则复制整条消息
+      if (!textToCopy) {
+        textToCopy = msg.text || (msg.image ? '[图片]' : '');
+      }
       copyTextToClipboard(textToCopy);
       closeMessageActionMenu();
     });
 
-    // ⭐ 2. 部分复制：弹出文本选择弹层（用户在弹层中自由选择文字）
-    var partialCopyBtn = document.createElement('button');
-    partialCopyBtn.className = 'msg-action-menu__btn';
-    partialCopyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">✂️</span><span>部分复制</span>';
-    partialCopyBtn.addEventListener('click', function () {
-      closeMessageActionMenu();
-      openPartialCopyOverlay(msg);
-    });
-
-    // ⭐ 3. 引用回复
+    // ⭐ 2. 引用回复
     var quoteBtn = document.createElement('button');
     quoteBtn.className = 'msg-action-menu__btn';
     quoteBtn.innerHTML = '<span class="msg-action-menu__btn-icon">↩️</span><span>引用回复</span>';
@@ -367,8 +372,7 @@
       document.getElementById('messageInput').focus();
     });
 
-    menu.appendChild(copyAllBtn);
-    menu.appendChild(partialCopyBtn);
+    menu.appendChild(copyBtn);
     menu.appendChild(quoteBtn);
     document.body.appendChild(menu);
 
@@ -379,17 +383,12 @@
     var menuHeight = menuRect.height;
     var top, left;
 
-    // 水平方向：气泡水平中心对齐
     left = rect.left + (rect.width / 2) - (menuWidth / 2);
-    // 边界修正：不要超出屏幕
     left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
 
-    // 垂直方向：优先在气泡上方（如果空间足够）
     top = rect.top - menuHeight - 8;
     if (top < 12) {
-      // 空间不够，改在下方
       top = rect.bottom + 8;
-      // 如果下方也不够，放在屏幕中间
       if (top + menuHeight > window.innerHeight - 12) {
         top = (window.innerHeight - menuHeight) / 2;
       }
@@ -398,94 +397,6 @@
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
     messageActionMenu = menu;
-  }
-
-  // ⭐ 部分复制：弹层模式（弹出文本区域，用户自由选择文字后点击复制）
-  function openPartialCopyOverlay(msg) {
-    closePartialCopyOverlay();
-
-    // 1. 半透明遮罩层
-    var overlay = document.createElement('div');
-    overlay.className = 'partial-copy-overlay';
-    overlay.addEventListener('click', function (e) {
-      // 点击遮罩空白处关闭
-      if (e.target === overlay) closePartialCopyOverlay();
-    });
-
-    // 2. 弹层容器
-    var panel = document.createElement('div');
-    panel.className = 'partial-copy-panel';
-    panel.addEventListener('click', function (e) { e.stopPropagation(); });
-
-    // 3. 顶部标题栏
-    var header = document.createElement('div');
-    header.className = 'partial-copy-panel__header';
-    header.innerHTML = '<span>选择要复制的文字</span>';
-
-    var closeBtn = document.createElement('button');
-    closeBtn.className = 'partial-copy-panel__close';
-    closeBtn.innerHTML = '✕';
-    closeBtn.addEventListener('click', closePartialCopyOverlay);
-    header.appendChild(closeBtn);
-    panel.appendChild(header);
-
-    // 4. 文本内容区（用户在这里自由选择文字）
-    var content = document.createElement('div');
-    content.className = 'partial-copy-panel__content';
-    content.textContent = msg.text || '（无文本内容）';
-    panel.appendChild(content);
-
-    // 5. 底部按钮区
-    var footer = document.createElement('div');
-    footer.className = 'partial-copy-panel__footer';
-
-    var copyBtn = document.createElement('button');
-    copyBtn.className = 'partial-copy-panel__btn primary';
-    copyBtn.textContent = '📋 复制选中内容';
-    copyBtn.addEventListener('click', function () {
-      var selected = '';
-      if (window.getSelection) {
-        var sel = window.getSelection();
-        if (sel && sel.toString) selected = sel.toString();
-      }
-      if (selected && selected.trim()) {
-        copyTextToClipboard(selected);
-        closePartialCopyOverlay();
-      } else {
-        copyBtn.textContent = '✎ 请先滑动选择文字';
-        setTimeout(function () { copyBtn.textContent = '📋 复制选中内容'; }, 1500);
-      }
-    });
-
-    var copyAllBtn = document.createElement('button');
-    copyAllBtn.className = 'partial-copy-panel__btn secondary';
-    copyAllBtn.textContent = '复制全部';
-    copyAllBtn.addEventListener('click', function () {
-      copyTextToClipboard(msg.text || '');
-      closePartialCopyOverlay();
-    });
-
-    footer.appendChild(copyAllBtn);
-    footer.appendChild(copyBtn);
-    panel.appendChild(footer);
-
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-    partialCopyOverlay = overlay;
-  }
-
-  function closePartialCopyOverlay() {
-    if (partialCopyOverlay && partialCopyOverlay.parentNode) {
-      partialCopyOverlay.parentNode.removeChild(partialCopyOverlay);
-    }
-    partialCopyOverlay = null;
-    // 清除文本选择
-    if (window.getSelection) {
-      try {
-        var sel = window.getSelection();
-        if (sel && sel.removeAllRanges) sel.removeAllRanges();
-      } catch (e) {}
-    }
   }
 
   // ⭐ 统一的复制函数（自动降级）
@@ -518,7 +429,11 @@
       messageActionMenu.parentNode.removeChild(messageActionMenu);
     }
     messageActionMenu = null;
-    // ⭐ 关闭菜单时清除文本选择，避免选中状态残留
+    // ⭐ 关闭菜单时：清除文本选择 + 移除气泡高亮
+    if (selectedBubble) {
+      selectedBubble.classList.remove('is-selected');
+      selectedBubble = null;
+    }
     if (window.getSelection) {
       try {
         var sel = window.getSelection();
@@ -1041,17 +956,12 @@
       if (messageActionMenu && !messageActionMenu.contains(e.target)) {
         closeMessageActionMenu();
       }
-      // 点击部分复制弹层外的区域，关闭弹层（弹层本身也有 self-close）
-      if (partialCopyOverlay && !partialCopyOverlay.contains(e.target)) {
-        closePartialCopyOverlay();
-      }
     });
 
-    // ⭐ ESC 键关闭操作菜单和部分复制弹层
+    // ⭐ ESC 键关闭操作菜单
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
         if (messageActionMenu) closeMessageActionMenu();
-        if (partialCopyOverlay) closePartialCopyOverlay();
       }
     });
 
