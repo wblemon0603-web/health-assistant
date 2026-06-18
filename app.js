@@ -49,6 +49,8 @@
 
   // 🍽 弹层是否当前打开（用于 AI 改动后是否需要同步重渲染）
   var foodModalOpen = false;
+  // ⭐ 引用回复：当前选中的引用消息
+  var quotedMsg = null;
 
   // ==========================================================================
   // 1. 消息持久化（localStorage 作为离线缓存）
@@ -228,11 +230,25 @@
     var bubble = document.createElement('div');
     bubble.className = 'msg__bubble';
 
+    // ⭐ 引用回复：如果消息有引用内容，在气泡顶部显示引用块
+    if (msg.quote) {
+      var quote = document.createElement('div');
+      quote.className = 'msg__quote';
+      var quoteRole = msg.quote.role === 'ai' ? 'AI 说' : '你说';
+      var quoteText = (msg.quote.text || '').slice(0, 100);
+      if (msg.quote.image && !msg.quote.text) quoteText = '[图片]';
+      quote.innerHTML = '<span class="msg__quote-role">' + quoteRole + '</span>' +
+                        '<span class="msg__quote-text">' + escapeHtml(quoteText) + '</span>';
+      bubble.appendChild(quote);
+    }
+
     if (msg.image) {
       var img = document.createElement('img');
       img.className = 'msg-image';
-      img.alt = '图片';
+      img.alt = '点击查看大图';
       img.src = msg.image;
+      // ⭐ 点击图片放大查看
+      img.addEventListener('click', function () { openImageViewer(msg.image); });
       bubble.appendChild(img);
     }
 
@@ -259,7 +275,183 @@
       wrap.appendChild(meta);
     }
 
+    // ⭐ 长按消息：弹出操作菜单（复制 / 引用回复）
+    var pressTimer = null;
+    var longPressed = false;
+    var startX = 0, startY = 0;
+
+    var startPress = function (x, y) {
+      longPressed = false;
+      startX = x;
+      startY = y;
+      pressTimer = setTimeout(function () {
+        longPressed = true;
+        showMessageActionMenu(bubble, msg);
+      }, 500);
+    };
+
+    var cancelPress = function () {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    };
+
+    bubble.addEventListener('touchstart', function (e) {
+      startPress(e.touches[0].clientX, e.touches[0].clientY);
+    });
+    bubble.addEventListener('touchend', cancelPress);
+    bubble.addEventListener('touchmove', function (e) {
+      var dx = e.touches[0].clientX - startX;
+      var dy = e.touches[0].clientY - startY;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) cancelPress();
+    });
+    bubble.addEventListener('mousedown', function (e) {
+      // 桌面端：右键直接触发菜单，左键长按也触发
+      if (e.button === 2) return; // 右键交给 contextmenu
+      startPress(e.clientX, e.clientY);
+    });
+    bubble.addEventListener('mouseup', cancelPress);
+    bubble.addEventListener('mouseleave', cancelPress);
+    bubble.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      showMessageActionMenu(bubble, msg);
+    });
+
     return wrap;
+  }
+
+  // ⭐ 显示消息操作菜单（复制 / 引用回复）
+  var messageActionMenu = null;
+  function showMessageActionMenu(anchorEl, msg) {
+    // 移除已有的菜单
+    if (messageActionMenu) {
+      if (messageActionMenu.parentNode) messageActionMenu.parentNode.removeChild(messageActionMenu);
+      messageActionMenu = null;
+    }
+
+    var menu = document.createElement('div');
+    menu.className = 'msg-action-menu';
+
+    // 复制（纯文本，优先用系统 Clipboard API）
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-action-menu__btn';
+    copyBtn.textContent = '📋 复制';
+    copyBtn.addEventListener('click', function () {
+      var textToCopy = msg.text || (msg.image ? '[图片]' : '');
+      var done = function () { closeMessageActionMenu(); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(done).catch(function () {
+          // 降级：用 execCommand
+          var ta = document.createElement('textarea');
+          ta.value = textToCopy;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } catch (e) {}
+          document.body.removeChild(ta);
+          done();
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = textToCopy;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        done();
+      }
+    });
+
+    // 引用回复
+    var quoteBtn = document.createElement('button');
+    quoteBtn.className = 'msg-action-menu__btn';
+    quoteBtn.textContent = '↩️ 引用回复';
+    quoteBtn.addEventListener('click', function () {
+      quotedMsg = msg;
+      renderQuoteBar();
+      closeMessageActionMenu();
+      document.getElementById('messageInput').focus();
+    });
+
+    // 取消
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'msg-action-menu__btn msg-action-menu__btn--cancel';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', closeMessageActionMenu);
+
+    menu.appendChild(copyBtn);
+    menu.appendChild(quoteBtn);
+    menu.appendChild(cancelBtn);
+    document.body.appendChild(menu);
+
+    // 定位：显示在气泡下方（空间不够则显示在上方）
+    var rect = anchorEl.getBoundingClientRect();
+    var menuRect = menu.getBoundingClientRect();
+    var menuWidth = 180;
+    var top = rect.bottom + 6;
+    var left = rect.left + (rect.width / 2) - (menuWidth / 2);
+
+    // 防止超出屏幕
+    left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
+    if (top + menuRect.height > window.innerHeight - 8) {
+      top = rect.top - menuRect.height - 6; // 改在上方
+    }
+    if (top < 8) top = 8;
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    messageActionMenu = menu;
+  }
+
+  function closeMessageActionMenu() {
+    if (messageActionMenu && messageActionMenu.parentNode) {
+      messageActionMenu.parentNode.removeChild(messageActionMenu);
+    }
+    messageActionMenu = null;
+  }
+
+  // ⭐ 渲染引用栏（输入框上方的引用提示条）
+  function renderQuoteBar() {
+    var bar = document.getElementById('quoteBar');
+    if (!bar) return;
+    if (!quotedMsg) { bar.style.display = 'none'; return; }
+
+    var roleText = quotedMsg.role === 'ai' ? 'AI 说' : '你说';
+    var previewText = quotedMsg.text ? quotedMsg.text.slice(0, 80) : (quotedMsg.image ? '[图片]' : '');
+    bar.innerHTML =
+      '<div class="quote-bar__body">' +
+        '<div class="quote-bar__role">' + roleText + '</div>' +
+        '<div class="quote-bar__text">' + escapeHtml(previewText) + '</div>' +
+      '</div>' +
+      '<button class="quote-bar__close" id="quoteBarClose">✕</button>';
+    bar.style.display = 'flex';
+
+    var closeBtn = document.getElementById('quoteBarClose');
+    if (closeBtn) closeBtn.addEventListener('click', function () {
+      quotedMsg = null;
+      renderQuoteBar();
+    });
+  }
+
+  // ⭐ 图片放大查看器
+  var imageViewer = null;
+  function openImageViewer(dataUrl) {
+    if (imageViewer) closeImageViewer();
+    var viewer = document.createElement('div');
+    viewer.className = 'image-viewer';
+    viewer.innerHTML =
+      '<button class="image-viewer__close" id="imageViewerClose">✕</button>' +
+      '<img class="image-viewer__img" src="' + dataUrl + '" alt="图片"/>';
+    document.body.appendChild(viewer);
+    imageViewer = viewer;
+
+    viewer.addEventListener('click', function (e) {
+      if (e.target === viewer || e.target.tagName === 'IMG' || e.target.id === 'imageViewerClose') {
+        closeImageViewer();
+      }
+    });
+  }
+
+  function closeImageViewer() {
+    if (imageViewer && imageViewer.parentNode) imageViewer.parentNode.removeChild(imageViewer);
+    imageViewer = null;
   }
 
   function showTyping() {
@@ -370,17 +562,32 @@
     isWaiting = true;
     setInputDisabled(true);
 
+    // ⭐ 引用回复：把引用消息保存到消息对象
+    var quoteInfo = null;
+    if (quotedMsg) {
+      quoteInfo = {
+        role: quotedMsg.role,
+        text: quotedMsg.text || '',
+        image: quotedMsg.image || null
+      };
+    }
+
     // 添加并渲染用户消息
     var userMsg = {
       role: 'user',
       text: text || '',
       image: imageDataUrl || null,
-      ts: Date.now()
+      ts: Date.now(),
+      quote: quoteInfo
     };
     messages.push(userMsg);
     saveMessagesToLocal(messages);
     renderNewMessage(userMsg);
     saveMessageToCloud(userMsg);
+
+    // ⭐ 引用回复：发送后清空引用
+    quotedMsg = null;
+    renderQuoteBar();
 
     // 显示打字动画
     showTyping();

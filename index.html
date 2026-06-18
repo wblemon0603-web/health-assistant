@@ -50,23 +50,28 @@
       class="chat-input-bar__file"
     />
 
-    <button
-      id="imageBtn"
-      type="button"
-      class="chat-input-bar__icon"
-      aria-label="上传图片或拍照"
-      title="拍照 / 相册"
-    >
-      <!-- 相机/相册 SVG 图标 -->
-      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M20 5h-3.2l-1.4-2.1A1 1 0 0 0 14.5 2h-5a1 1 0 0 0-.9.6L7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-8 12a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
-        />
-      </svg>
-    </button>
+    <!-- ⭐ 引用栏：引用回复时显示 -->
+    <div id="quoteBar" class="quote-bar" hidden></div>
 
-    <form id="chatForm" class="chat-input-bar__form">
+    <!-- ⭐ 输入行：图片按钮 + 表单（同一行） -->
+    <div class="chat-input-bar__row">
+      <button
+        id="imageBtn"
+        type="button"
+        class="chat-input-bar__icon"
+        aria-label="上传图片或拍照"
+        title="拍照 / 相册"
+      >
+        <!-- 相机/相册 SVG 图标 -->
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M20 5h-3.2l-1.4-2.1A1 1 0 0 0 14.5 2h-5a1 1 0 0 0-.9.6L7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-8 12a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
+          />
+        </svg>
+      </button>
+
+      <form id="chatForm" class="chat-input-bar__form">
       <input
         id="messageInput"
         type="text"
@@ -84,6 +89,7 @@
         </svg>
       </button>
     </form>
+    </div>
 
     <!-- 预览区：展示即将发送的图片 -->
     <div id="imagePreview" class="image-preview" hidden>
