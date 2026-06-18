@@ -110,16 +110,31 @@
     </div>
   </div>
 
-  <!-- 环境配置（API 地址） -->
-  <script src="./env.js"></script>
-  <!-- 主逻辑 -->
-  <script src="./app.js" defer></script>
+  <!-- 环境配置（API 地址）+ 时间戳版本号，跳过浏览器缓存 -->
+  <script src="./env.js?v=1718700000"></script>
+  <!-- 主逻辑 + 时间戳版本号 -->
+  <script src="./app.js?v=1718700000" defer></script>
 
-  <!-- 注册 Service Worker（仅在支持的浏览器中） -->
+  <!-- 注册 Service Worker（检测到新版本时提示用户刷新） -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./service-worker.js').catch(function (err) {
+        navigator.serviceWorker.register('./service-worker.js').then(function (reg) {
+          // ⭐ 检测到新版本 SW，提示用户刷新
+          reg.addEventListener('updatefound', function () {
+            var newWorker = reg.installing;
+            newWorker.addEventListener('statechange', function () {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // 新版本已安装，显示提示
+                if (confirm('新版本已就绪，是否立即刷新？')) {
+                  window.location.reload();
+                }
+              }
+            });
+          });
+          // 每分钟检查一次更新
+          setInterval(function () { reg.update(); }, 60000);
+        }).catch(function (err) {
           console.warn('SW 注册失败：', err);
         });
       });

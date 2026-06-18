@@ -2,21 +2,18 @@
    Service Worker - 支持离线打开
    策略：
      - 安装时预缓存核心静态资源 (app shell)
-     - 运行时对同源静态资源：缓存优先，回退到网络
-     - 跨源资源（CDN marked/dompurify）：stale-while-revalidate
-     - 接口请求（/chat）：不缓存，直接走网络
+     - 同源静态资源（HTML/JS/CSS）：stale-while-revalidate → 先显示缓存，后台悄悄拉取新版本
+     - 图片等资源：缓存优先（变化小）
+     - 接口请求（/chat /messages 等）：不缓存，直接走网络
    ========================================================================== */
 
-var CACHE_NAME = 'health-assistant-v2';
+var CACHE_NAME = 'health-assistant-v3';
 var PRECACHE_URLS = [
-  './',
   './index.html',
   './style.css',
   './app.js',
   './env.js',
-  './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  './manifest.json'
 ];
 
 // ---------- 安装：预缓存 ----------
@@ -72,12 +69,42 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
-  // 同源资源：缓存优先，缓存没有再走网络
+  // ⭐ 同源静态资源（HTML/JS/CSS）：stale-while-revalidate
+  // 先返回缓存，后台再拉取新版本写入缓存，下次刷新生效
+  if (url.origin === location.origin) {
+    var isHTML = url.pathname === '/' ||
+                 url.pathname.endsWith('.html') ||
+                 req.mode === 'navigate';
+    var isJS = url.pathname.endsWith('.js');
+    var isCSS = url.pathname.endsWith('.css');
+    var isStatic = isHTML || isJS || isCSS;
+    
+    if (isStatic) {
+      event.respondWith(
+        caches.open(CACHE_NAME).then(function (cache) {
+          return cache.match(req).then(function (cached) {
+            var networkFetch = fetch(req).then(function (resp) {
+              // 成功响应才写入缓存
+              if (resp && resp.status === 200 && resp.type === 'basic') {
+                cache.put(req, resp.clone());
+              }
+              return resp;
+            }).catch(function () {
+              return cached; // 网络失败时返回缓存
+            });
+            return cached || networkFetch;
+          });
+        })
+      );
+      return;
+    }
+  }
+
+  // 其他同源资源（图片等）：缓存优先
   if (url.origin === location.origin) {
     event.respondWith(
       caches.match(req).then(function (cached) {
         return cached || fetch(req).then(function (resp) {
-          // 成功响应才写入缓存
           if (resp && resp.status === 200 && resp.type === 'basic') {
             var clone = resp.clone();
             caches.open(CACHE_NAME).then(function (cache) {
@@ -86,11 +113,9 @@ self.addEventListener('fetch', function (event) {
           }
           return resp;
         }).catch(function () {
-          // 离线时导航请求回退到 index.html
           if (req.mode === 'navigate') {
             return caches.match('./index.html');
           }
-          throw new Error('offline');
         });
       })
     );
