@@ -277,7 +277,7 @@
       wrap.appendChild(meta);
     }
 
-    // ⭐ 微信风格：长按消息 → 气泡高亮 + 允许文本选择 + 弹出操作菜单
+    // 微信风格：长按消息 → 气泡高亮 + 允许文本选择 + 弹出操作菜单
     var pressTimer = null;
     var startX = 0, startY = 0;
     var longPressed = false;
@@ -286,7 +286,6 @@
       longPressed = false;
       pressTimer = setTimeout(function () {
         longPressed = true;
-        // ⭐ 长按触发：震动反馈 + 气泡高亮 + 允许文本选择
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
         bubble.classList.add('is-selected');
         showMessageActionMenu(bubble, msg);
@@ -297,27 +296,31 @@
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
     };
 
+    // 关键：passive:false 才能让 preventDefault 生效
     bubble.addEventListener('touchstart', function (e) {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       startPress();
-    });
+    }, { passive: false });
 
     bubble.addEventListener('touchend', function (e) {
-      if (longPressed) e.preventDefault();
+      if (longPressed) {
+        e.preventDefault();   // 阻止合成 click，防止菜单一弹就被关
+      }
       cancelPress();
-    });
-    bubble.addEventListener('touchcancel', function (e) {
-      if (longPressed) e.preventDefault();
+    }, { passive: false });
+
+    bubble.addEventListener('touchcancel', function () {
       cancelPress();
-    });
+    }, { passive: false });
+
     bubble.addEventListener('touchmove', function (e) {
       var dx = e.touches[0].clientX - startX;
       var dy = e.touches[0].clientY - startY;
       if (Math.abs(dx) > 10 || Math.abs(dy) > 10) cancelPress();
-    });
+    }, { passive: true });
 
-    // ⭐ 桌面端：右键直接触发菜单
+    // 桌面端：右键直接触发菜单
     bubble.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -328,65 +331,83 @@
     return wrap;
   }
 
-  // ⭐ 微信风格：显示消息操作菜单（白色圆角卡片 - 复制/引用回复）
-  //   长按后气泡高亮（is-selected），用户可拖动光标选择文字，点击"复制"复制选中文字
+  // 微信风格：消息操作菜单（白色圆角卡片 — 复制 / 引用回复）
   var messageActionMenu = null;
-  var selectedBubble = null; // 当前被选中（高亮）的气泡 DOM
+  var messageActionMenuOpenAt = 0;   // 菜单弹出时间戳，用于忽略合成点击
+  var selectedBubble = null;
 
   function showMessageActionMenu(bubbleEl, msg) {
-    closeMessageActionMenu();
+    closeMessageActionMenu({ clearSelection: true });
     selectedBubble = bubbleEl;
 
     var menu = document.createElement('div');
     menu.className = 'msg-action-menu';
 
-    // ⭐ 1. 复制：优先复制用户选中的文字，没选中则复制整条消息
+    // 1. 复制
     var copyBtn = document.createElement('button');
     copyBtn.className = 'msg-action-menu__btn';
     copyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>复制</span>';
+    // 用 mousedown 而不是 click：避免 iOS 上选区在 click 触发前被默认行为清掉
+    copyBtn.addEventListener('mousedown', function (e) {
+      e.preventDefault();   // 关键：阻止按钮抢走 selection
+    });
+    copyBtn.addEventListener('touchstart', function (e) {
+      e.preventDefault();
+    }, { passive: false });
+
     copyBtn.addEventListener('click', function () {
       var textToCopy = '';
-      // 优先取用户选中的文字（window.getSelection 获取页面上被高亮的文本）
+
+      // 优先取用户选中的文字
       if (window.getSelection) {
         var sel = window.getSelection();
         if (sel && sel.toString && sel.toString().trim()) {
           textToCopy = sel.toString();
         }
       }
-      // 没有选中则复制整条消息
+
+      // 兜底：实时从 msg / 气泡 DOM 读取（防止闭包旧值）
       if (!textToCopy) {
-        textToCopy = msg.text || (msg.image ? '[图片]' : '');
+        if (msg && msg.text) {
+          textToCopy = msg.text;
+        } else if (bubbleEl && bubbleEl.innerText) {
+          textToCopy = bubbleEl.innerText;
+        } else if (msg && msg.image) {
+          textToCopy = '[图片]';
+        }
       }
+
       copyTextToClipboard(textToCopy);
-      closeMessageActionMenu();
+      // 关键：不清选区，让用户看到自己选了什么
+      closeMessageActionMenu({ clearSelection: false });
     });
 
-    // ⭐ 2. 引用回复
+    // 2. 引用回复
     var quoteBtn = document.createElement('button');
     quoteBtn.className = 'msg-action-menu__btn';
     quoteBtn.innerHTML = '<span class="msg-action-menu__btn-icon">↩️</span><span>引用回复</span>';
     quoteBtn.addEventListener('click', function () {
       quotedMsg = msg;
       renderQuoteBar();
-      closeMessageActionMenu();
-      document.getElementById('messageInput').focus();
+      closeMessageActionMenu({ clearSelection: true });
+      var input = document.getElementById('messageInput');
+      if (input) input.focus();
     });
 
     menu.appendChild(copyBtn);
     menu.appendChild(quoteBtn);
     document.body.appendChild(menu);
 
-    // ⭐ 定位：显示在气泡上方（空间不够则在下方）
+    // 定位
     var rect = bubbleEl.getBoundingClientRect();
     var menuRect = menu.getBoundingClientRect();
     var menuWidth = menuRect.width;
     var menuHeight = menuRect.height;
-    var top, left;
 
-    left = rect.left + (rect.width / 2) - (menuWidth / 2);
+    var left = rect.left + (rect.width / 2) - (menuWidth / 2);
     left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
 
-    top = rect.top - menuHeight - 8;
+    var top = rect.top - menuHeight - 8;
     if (top < 12) {
       top = rect.bottom + 8;
       if (top + menuHeight > window.innerHeight - 12) {
@@ -396,45 +417,100 @@
 
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
+
     messageActionMenu = menu;
+    messageActionMenuOpenAt = Date.now();
   }
 
-  // ⭐ 统一的复制函数（自动降级）
+  // 统一的复制函数（自动降级）+ iOS 可见 textarea 兜底
   function copyTextToClipboard(text) {
-    if (!text) return;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).catch(function () {
-        fallbackCopy(text);
+    if (!text) {
+      showCopyToast('没有可复制的内容');
+      return;
+    }
+
+    // 现代浏览器：Clipboard API（仅在 HTTPS 下可用）
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () {
+        showCopyToast('已复制');
+      }).catch(function () {
+        if (fallbackCopy(text)) {
+          showCopyToast('已复制');
+        } else {
+          showCopyToast('复制失败，请手动选择');
+        }
       });
     } else {
-      fallbackCopy(text);
+      // 老浏览器 / 非 HTTPS / iOS 旧 Safari
+      if (fallbackCopy(text)) {
+        showCopyToast('已复制');
+      } else {
+        showCopyToast('复制失败，请手动选择');
+      }
     }
   }
 
+  // iOS 兜底：可见 textarea（不能在屏幕外）+ setSelectionRange
   function fallbackCopy(text) {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    ta.style.top = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    try { document.execCommand('copy'); } catch (e) {}
-    document.body.removeChild(ta);
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      // iOS Safari：必须可见且不能在屏幕外，否则不复制
+      ta.style.position = 'fixed';
+      ta.style.left = '0';
+      ta.style.top = '0';
+      ta.style.width = '1px';
+      ta.style.height = '1px';
+      ta.style.opacity = '0';
+      ta.style.fontSize = '16px'; // 防止 iOS 自动放大
+      document.body.appendChild(ta);
+
+      ta.focus();
+      ta.select();
+      if (ta.setSelectionRange) {
+        ta.setSelectionRange(0, text.length);
+      }
+
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) {
+      return false;
+    }
   }
 
-  function closeMessageActionMenu() {
+  // 复制成功反馈 Toast（微信风格）
+  function showCopyToast(text) {
+    var old = document.querySelector('.copy-toast');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    var toast = document.createElement('div');
+    toast.className = 'copy-toast';
+    toast.textContent = text;
+    document.body.appendChild(toast);
+
+    setTimeout(function () {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 1700);
+  }
+
+  function closeMessageActionMenu(opts) {
+    opts = opts || {};
+    var clearSelection = opts.clearSelection !== false; // 默认 true
+
     if (messageActionMenu && messageActionMenu.parentNode) {
       messageActionMenu.parentNode.removeChild(messageActionMenu);
     }
     messageActionMenu = null;
-    // ⭐ 关闭菜单时：清除文本选择 + 移除气泡高亮
+
     if (selectedBubble) {
       selectedBubble.classList.remove('is-selected');
       selectedBubble = null;
     }
-    if (window.getSelection) {
+
+    if (clearSelection && window.getSelection) {
       try {
         var sel = window.getSelection();
         if (sel && sel.removeAllRanges) sel.removeAllRanges();
@@ -951,17 +1027,21 @@
   // ==========================================================================
 
   function init() {
-    // ⭐ 全局：点击菜单外的区域关闭操作菜单
-    document.addEventListener('click', function (e) {
-      if (messageActionMenu && !messageActionMenu.contains(e.target)) {
-        closeMessageActionMenu();
-      }
-    });
+    // 全局：点击菜单外区域关闭操作菜单（mousedown/touchstart 捕获阶段 + 50ms 保护期）
+    var outsideHandler = function (e) {
+      if (!messageActionMenu) return;
+      // 菜单刚弹出的 50ms 内忽略，防止 touchend 合成的 click 立即关掉菜单
+      if (Date.now() - messageActionMenuOpenAt < 50) return;
+      if (messageActionMenu.contains(e.target)) return;
+      closeMessageActionMenu({ clearSelection: true });
+    };
+    document.addEventListener('mousedown', outsideHandler, true);   // 捕获阶段
+    document.addEventListener('touchstart', outsideHandler, { capture: true, passive: true });
 
-    // ⭐ ESC 键关闭操作菜单
+    // ESC 关闭菜单
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') {
-        if (messageActionMenu) closeMessageActionMenu();
+      if (e.key === 'Escape' && messageActionMenu) {
+        closeMessageActionMenu({ clearSelection: true });
       }
     });
 
