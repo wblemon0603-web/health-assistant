@@ -219,14 +219,9 @@ body {
   border-bottom-left-radius: 6px;
 }
 
-/* ⭐ 微信风格：长按后气泡高亮 + 允许文本选择（用户可拖动光标调整范围） */
+/* ⭐ 微信风格：长按后气泡高亮（整条消息复制，不再允许部分选择） */
 .msg__bubble.is-selected {
   filter: brightness(0.92) saturate(1.1);
-  -webkit-touch-callout: default;
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  -ms-user-select: text;
-  user-select: text;
 }
 
 /* 气泡出现动画 */

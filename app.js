@@ -288,16 +288,6 @@
         longPressed = true;
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
         bubble.classList.add('is-selected');
-
-        // 🔥 关键：主动选中整条消息,iOS 才会出现蓝色选词把手
-        try {
-          var range = document.createRange();
-          range.selectNodeContents(bubble);
-          var sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch (e) {}
-
         showMessageActionMenu(bubble, msg);
       }, 500);
     };
@@ -335,16 +325,6 @@
       e.preventDefault();
       e.stopPropagation();
       bubble.classList.add('is-selected');
-
-      // 右键也主动选中气泡内容,让桌面端可以直接调整选区
-      try {
-        var range = document.createRange();
-        range.selectNodeContents(bubble);
-        var sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (e) {}
-
       showMessageActionMenu(bubble, msg);
     });
 
@@ -372,17 +352,14 @@
       e.preventDefault();
       e.stopPropagation();
 
+      // 直接复制整条消息内容（不再依赖文本选区）
       var textToCopy = '';
-      if (window.getSelection) {
-        var sel = window.getSelection();
-        if (sel && sel.toString && sel.toString().trim()) {
-          textToCopy = sel.toString();
-        }
-      }
-      if (!textToCopy) {
-        if (msg && msg.text) textToCopy = msg.text;
-        else if (bubbleEl && bubbleEl.innerText) textToCopy = bubbleEl.innerText;
-        else if (msg && msg.image) textToCopy = '[图片]';
+      if (msg && msg.text && msg.text.trim()) {
+        textToCopy = msg.text.trim();
+      } else if (bubbleEl && bubbleEl.innerText && bubbleEl.innerText.trim()) {
+        textToCopy = bubbleEl.innerText.trim();
+      } else if (msg && msg.image) {
+        textToCopy = '[图片]';
       }
 
       copyTextToClipboard(textToCopy);

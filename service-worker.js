@@ -7,7 +7,7 @@
    每次部署只需要改下面的 BUILD_ID(或用构建脚本注入时间戳)即可强制更新
    ========================================================================== */
 
-var BUILD_ID = '20260618-4';                           // ← 每次部署改这一行
+var BUILD_ID = '20260618-5';                           // ← 每次部署改这一行
 var CACHE_NAME = 'health-assistant-' + BUILD_ID;
 var PRECACHE_URLS = [
   './index.html',
