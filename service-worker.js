@@ -7,7 +7,7 @@
      - 接口请求（/chat /messages 等）：不缓存，直接走网络
    ========================================================================== */
 
-var CACHE_NAME = 'health-assistant-v3';
+var CACHE_NAME = 'health-assistant-v20260618-4';
 var PRECACHE_URLS = [
   './index.html',
   './style.css',

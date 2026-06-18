@@ -277,7 +277,7 @@
       wrap.appendChild(meta);
     }
 
-    // 微信风格：长按消息 → 气泡高亮 + 允许文本选择 + 弹出操作菜单
+    // 微信风格：长按消息 → 气泡高亮 + 主动选词 + 弹出操作菜单
     var pressTimer = null;
     var startX = 0, startY = 0;
     var longPressed = false;
@@ -288,6 +288,16 @@
         longPressed = true;
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) {} }
         bubble.classList.add('is-selected');
+
+        // 🔥 关键：主动选中整条消息,iOS 才会出现蓝色选词把手
+        try {
+          var range = document.createRange();
+          range.selectNodeContents(bubble);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (e) {}
+
         showMessageActionMenu(bubble, msg);
       }, 500);
     };
@@ -325,80 +335,87 @@
       e.preventDefault();
       e.stopPropagation();
       bubble.classList.add('is-selected');
+
+      // 右键也主动选中气泡内容,让桌面端可以直接调整选区
+      try {
+        var range = document.createRange();
+        range.selectNodeContents(bubble);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (e) {}
+
       showMessageActionMenu(bubble, msg);
     });
 
     return wrap;
   }
 
-  // 微信风格：消息操作菜单（白色圆角卡片 — 复制 / 引用回复）
+  // 微信风格：消息操作菜单
   var messageActionMenu = null;
-  var messageActionMenuOpenAt = 0;   // 菜单弹出时间戳，用于忽略合成点击
+  var messageActionMenuOpenAt = 0;
   var selectedBubble = null;
 
   function showMessageActionMenu(bubbleEl, msg) {
-    closeMessageActionMenu({ clearSelection: true });
+    closeMessageActionMenu({ clearSelection: false }); // 不要清掉刚选的文字
     selectedBubble = bubbleEl;
 
     var menu = document.createElement('div');
     menu.className = 'msg-action-menu';
 
-    // 1. 复制
+    // ---- 1. 复制按钮 ----
     var copyBtn = document.createElement('button');
     copyBtn.className = 'msg-action-menu__btn';
     copyBtn.innerHTML = '<span class="msg-action-menu__btn-icon">📋</span><span>复制</span>';
-    // 用 mousedown 而不是 click：避免 iOS 上选区在 click 触发前被默认行为清掉
-    copyBtn.addEventListener('mousedown', function (e) {
-      e.preventDefault();   // 关键：阻止按钮抢走 selection
-    });
-    copyBtn.addEventListener('touchstart', function (e) {
+
+    var copyHandler = function (e) {
       e.preventDefault();
-    }, { passive: false });
+      e.stopPropagation();
 
-    copyBtn.addEventListener('click', function () {
       var textToCopy = '';
-
-      // 优先取用户选中的文字
       if (window.getSelection) {
         var sel = window.getSelection();
         if (sel && sel.toString && sel.toString().trim()) {
           textToCopy = sel.toString();
         }
       }
-
-      // 兜底：实时从 msg / 气泡 DOM 读取（防止闭包旧值）
       if (!textToCopy) {
-        if (msg && msg.text) {
-          textToCopy = msg.text;
-        } else if (bubbleEl && bubbleEl.innerText) {
-          textToCopy = bubbleEl.innerText;
-        } else if (msg && msg.image) {
-          textToCopy = '[图片]';
-        }
+        if (msg && msg.text) textToCopy = msg.text;
+        else if (bubbleEl && bubbleEl.innerText) textToCopy = bubbleEl.innerText;
+        else if (msg && msg.image) textToCopy = '[图片]';
       }
 
       copyTextToClipboard(textToCopy);
-      // 关键：不清选区，让用户看到自己选了什么
-      closeMessageActionMenu({ clearSelection: false });
-    });
+      closeMessageActionMenu({ clearSelection: true });
+    };
 
-    // 2. 引用回复
+    // 🔥 双绑定：touchend 先于 click 触发，绕开 iOS click 被吃问题
+    copyBtn.addEventListener('touchend', copyHandler, { passive: false });
+    copyBtn.addEventListener('click', copyHandler);
+
+    // ---- 2. 引用回复按钮 ----
     var quoteBtn = document.createElement('button');
     quoteBtn.className = 'msg-action-menu__btn';
     quoteBtn.innerHTML = '<span class="msg-action-menu__btn-icon">↩️</span><span>引用回复</span>';
-    quoteBtn.addEventListener('click', function () {
+
+    var quoteHandler = function (e) {
+      e.preventDefault();
+      e.stopPropagation();
       quotedMsg = msg;
       renderQuoteBar();
       closeMessageActionMenu({ clearSelection: true });
       var input = document.getElementById('messageInput');
       if (input) input.focus();
-    });
+    };
+
+    quoteBtn.addEventListener('touchend', quoteHandler, { passive: false });
+    quoteBtn.addEventListener('click', quoteHandler);
 
     menu.appendChild(copyBtn);
     menu.appendChild(quoteBtn);
     document.body.appendChild(menu);
 
-    // 定位
+    // ---- 定位 ----
     var rect = bubbleEl.getBoundingClientRect();
     var menuRect = menu.getBoundingClientRect();
     var menuWidth = menuRect.width;
@@ -1033,6 +1050,9 @@
       // 菜单刚弹出的 50ms 内忽略，防止 touchend 合成的 click 立即关掉菜单
       if (Date.now() - messageActionMenuOpenAt < 50) return;
       if (messageActionMenu.contains(e.target)) return;
+      // 🔥 如果点击的是当前选中的气泡(用户在调整选区),不关闭菜单
+      var clickedBubble = e.target.closest && e.target.closest('.msg__bubble');
+      if (clickedBubble && clickedBubble === selectedBubble) return;
       closeMessageActionMenu({ clearSelection: true });
     };
     document.addEventListener('mousedown', outsideHandler, true);   // 捕获阶段
